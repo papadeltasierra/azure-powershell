@@ -19,7 +19,8 @@ New-AzConnectedKubernetes -ClusterName <String> -ResourceGroupName <String> [-Su
  [-KubeContext <String>] [-AzureHybridBenefit <AzureHybridBenefit>] [-Distribution <String>]
  [-DistributionVersion <String>] [-Infrastructure <String>] [-PrivateLinkScopeResourceId <String>]
  [-PrivateLinkState <PrivateLinkState>] [-ProvisioningState <ProvisioningState>] [-Tag <Hashtable>]
- [-EnableGateway -Gateway <String>]
+ [-FeatureSettings <String>] [-ProtectedFeatureSettings <String>]
+ [-EnableGateway] [-Gateway <String>]
  [-CustomLocationsOid <String>] [-AcceptEULA] [-DefaultProfile <PSObject>] [-AsJob] [-NoWait]
  [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
@@ -290,6 +291,21 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -FeatureSettings
+Configuration settings for the feature that do not contain sensitive or secret information.
+
+```yaml
+Type: System.Array
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -Gateway
 The Id of the Azure Arc Gateway to be used by this cluster.
 
@@ -460,6 +476,21 @@ Property which describes the state of private link on a connected cluster resour
 
 ```yaml
 Type: Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Support.PrivateLinkState
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -ProtectedFeatureSettings
+Configuration settings for the feature that contain any sensitive or secret information.
+
+```yaml
+Type: System.Array
 Parameter Sets: (All)
 Aliases:
 
