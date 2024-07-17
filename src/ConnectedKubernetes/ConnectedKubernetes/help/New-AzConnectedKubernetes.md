@@ -19,6 +19,7 @@ New-AzConnectedKubernetes -ClusterName <String> -ResourceGroupName <String> [-Su
  [-KubeContext <String>] [-AzureHybridBenefit <AzureHybridBenefit>] [-Distribution <String>]
  [-DistributionVersion <String>] [-Infrastructure <String>] [-PrivateLinkScopeResourceId <String>]
  [-PrivateLinkState <PrivateLinkState>] [-ProvisioningState <ProvisioningState>] [-Tag <Hashtable>]
+ [-Gateway <String>]
  [-CustomLocationsOid <String>] [-AcceptEULA] [-DefaultProfile <PSObject>] [-AsJob] [-NoWait]
  [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
@@ -276,6 +277,21 @@ Accept wildcard characters: False
 
 ### -DistributionVersion
 The Kubernetes distribution version on this connected cluster.
+
+```yaml
+Type: System.String
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Gateway
+The Id of the Azure Arc Gateway to be used by this cluster.
 
 ```yaml
 Type: System.String
