@@ -1,20 +1,20 @@
 ---
-external help file: Az.ConnectedGateway-help.xml
-Module Name: Az.ConnectedGateway
-online version: https://learn.microsoft.com/powershell/module/az.connectedmachine/new-azconnectedgateway
+external help file: Az.ConnectedArcGateway-help.xml
+Module Name: Az.ConnectedArcGateway
+online version: https://learn.microsoft.com/powershell/module/az.connectedmachine/new-azconnectedarcgateway
 schema: 2.0.0
 ---
 
-# New-AzConnectedGateway
+# New-AzConnectedArcGateway
 
 ## SYNOPSIS
-The operation to create an Arc gateway.
+The operation to create an Arc Gateway.
 
 ## SYNTAX
 
 ### CreateExpanded (Default)
 ```
-New-AzConnectedGateway -Name <String> -ResourceGroupName <String>  -Location <String> -GatewayType <String> -AllowedFeatures <String>
+New-AzConnectedArcGateway -Name <String> -ResourceGroupName <String>  -Location <String> -GatewayType <String> -AllowedFeatures <String>
  [-SubscriptionId <String>]
  [-AsJob] [-NoWait] [-WhatIf] [-Confirm]
  [<CommonParameters>]
@@ -42,7 +42,7 @@ The operation to create or update the Arc Gateway
 ### Example 1: Create a new ArcGateway
 ```powershell
 $Settings = @{ "commandToExecute" = "powershell.exe -c Get-Process" }
-New-AzConnectedGateway -Name custom -ResourceGroupName ContosoTest -Location eastus
+New-AzConnectedArcGateway -Name custom -ResourceGroupName ContosoTest -Location eastus
 ```
 
 ```output
@@ -55,8 +55,8 @@ Sets an extension on a machine.
 
 ### Example 2: Add a new extension with extension parameters specified via the pipeline
 ```powershell
-$otherExtension = Get-AzConnectedGateway -Name custom -ResourceGroupName ContosoTest
-$otherExtension | New-AzConnectedGateway -Name duplicate -ResourceGroupName ContosoTest
+$otherExtension = Get-AzConnectedArcGateway -Name custom -ResourceGroupName ContosoTest
+$otherExtension | New-AzConnectedArcGateway -Name duplicate -ResourceGroupName ContosoTest
 ```
 
 ```output
@@ -272,11 +272,16 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## INPUTS
 
+!!PDS: Not clear what the inputs are here but see comments re outputs and obkect types.
+
 ### Microsoft.Azure.PowerShell.Cmdlets.ConnectedMachine.Models.IConnectedMachineIdentity
 
 ### Microsoft.Azure.PowerShell.Cmdlets.ConnectedMachine.Models.IMachineExtension
 
 ## OUTPUTS
+
+!!PDS: We need to define the router object that is output here and somehow the link below will do that but the API version and object is wrong!
+See the comment about wrapped output types.
 
 ### Microsoft.Azure.PowerShell.Cmdlets.ConnectedMachine.Models.IMachineExtension
 

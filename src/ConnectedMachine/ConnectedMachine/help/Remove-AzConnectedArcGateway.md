@@ -1,49 +1,59 @@
 ---
-external help file: Az.KubernetesConfiguration-help.xml
-Module Name: Az.KubernetesConfiguration
-online version: https://learn.microsoft.com/powershell/module/az.kubernetesconfiguration/new-azkubernetesrouter
+external help file: Az.ConnectedArc Gateway-help.xml
+Module Name: Az.ConnectedArc Gateway
+online version: https://learn.microsoft.com/powershell/module/az.connectedarc gateway/remove-azconnectedarcgateway
 schema: 2.0.0
 ---
 
-# New-AzKubernetesRouter
+# Remove-AzConnectedArc Gateway
 
 ## SYNOPSIS
-Create a new Kubernetes Cluster Router.
+The operation to delete an Arc Gateway.
 
 ## SYNTAX
 
+### Delete (Default)
 ```
-New-AzKubernetesRouter -ClusterName <String> -Name <String> -Gateway <String>  -ResourceGroupName <String> [-SubscriptionId <String>]
-[-AsJob] [-NoWait] [-WhatIf] [-Confirm] [<CommonParameters>]
+Remove-AzConnectedArcGateway -Name <String> -ResourceGroupName <String> [-SubscriptionId <String>]
+ [-DefaultProfile <PSObject>] [-PassThru] [-WhatIf] [-Confirm]
+ [<CommonParameters>]
+```
+
+### DeleteViaIdentity
+```
+Remove-AzConnectedArcGateway -InputObject <IConnectedArc GatewayIdentity> [-DefaultProfile <PSObject>] [-PassThru]
+ [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
-Create a new Kubernetes Cluster Router.
+The operation to delete an Arc Gateway.
 
 ## EXAMPLES
 
-### Example 1: Create a new Kubernetes Cluster Router.
+### Example 1: Remove a connected arc gateway
 ```powershell
-New-AzKubernetesExtension -ClusterName azpstest_cluster_arc -Name azpstest-router -ResourceGroupName azps_test_group -Gateway ?????
+Remove-AzConnectedArcGateway -Name myArc Gateway -ResourceGroupName myRG
 ```
 
-```output
-Name              ProvisioningState
-----              -----------------
-azpstest-router   Succeeded
+Deletes the connected arc gateway.
+
+### Example 2: Remove connected arc gateways via the pipeline
+```powershell
+Get-AzConnectedArcGateway -ResourceGroupName contoso-connected-arc gateways | Remove-AzConnectedArcGateway
 ```
 
-Create a new Kubernetes Cluster Extension.
+Removes all arc gateways in the `contoso-connected-arc gateways` resource group.
 
 ## PARAMETERS
 
-### -AsJob
-Run the command as a job
+### -DefaultProfile
+The DefaultProfile parameter is not functional.
+Use the SubscriptionId parameter when available if executing the cmdlet against a different subscription.
 
 ```yaml
-Type: System.Management.Automation.SwitchParameter
+Type: System.Management.Automation.PSObject
 Parameter Sets: (All)
-Aliases:
+Aliases: AzureRMContext, AzureCredential
 
 Required: False
 Position: Named
@@ -52,28 +62,28 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
-### -ClusterName
-The name of the kubernetes cluster.
+### -InputObject
+Identity Parameter
 
 ```yaml
-Type: System.String
-Parameter Sets: (All)
+Type: Microsoft.Azure.PowerShell.Cmdlets.ConnectedArc Gateway.Models.IConnectedArc GatewayIdentity
+Parameter Sets: DeleteViaIdentity
 Aliases:
 
 Required: True
 Position: Named
 Default value: None
-Accept pipeline input: False
+Accept pipeline input: True (ByValue)
 Accept wildcard characters: False
 ```
 
 ### -Name
-Name of the Router.
+The name of the Arc Gateway.
 
 ```yaml
 Type: System.String
-Parameter Sets: (All)
-Aliases: ExtensionName
+Parameter Sets: Delete
+Aliases: Arc GatewayName
 
 Required: True
 Position: Named
@@ -82,8 +92,8 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
-### -NoWait
-Run the command asynchronously
+### -PassThru
+Returns true when the command succeeds
 
 ```yaml
 Type: System.Management.Automation.SwitchParameter
@@ -103,7 +113,7 @@ The name is case insensitive.
 
 ```yaml
 Type: System.String
-Parameter Sets: (All)
+Parameter Sets: Delete
 Aliases:
 
 Required: True
@@ -118,7 +128,7 @@ The ID of the target subscription.
 
 ```yaml
 Type: System.String
-Parameter Sets: (All)
+Parameter Sets: Delete
 Aliases:
 
 Required: False
@@ -164,14 +174,13 @@ This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable
 
 ## INPUTS
 
+!!PDS: Define this somewhere.
+### Microsoft.Azure.PowerShell.Cmdlets.ConnectedArc Gateway.Models.IConnectedArcGatewayIdentity
+
 ## OUTPUTS
 
-### Microsoft.Azure.PowerShell.Cmdlets.KubernetesConfiguration.Models.Api20221101.IExtension
+### System.Boolean
 
 ## NOTES
-
-ALIASES
-
-New-AzK8sRouter
 
 ## RELATED LINKS
