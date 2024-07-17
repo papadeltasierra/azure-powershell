@@ -19,7 +19,7 @@ New-AzConnectedKubernetes -ClusterName <String> -ResourceGroupName <String> [-Su
  [-KubeContext <String>] [-AzureHybridBenefit <AzureHybridBenefit>] [-Distribution <String>]
  [-DistributionVersion <String>] [-Infrastructure <String>] [-PrivateLinkScopeResourceId <String>]
  [-PrivateLinkState <PrivateLinkState>] [-ProvisioningState <ProvisioningState>] [-Tag <Hashtable>]
- [-Gateway <String>]
+ [-EnableGateway -Gateway <String>]
  [-CustomLocationsOid <String>] [-AcceptEULA] [-DefaultProfile <PSObject>] [-AsJob] [-NoWait]
  [-WhatIf] [-Confirm] [<CommonParameters>]
 ```
