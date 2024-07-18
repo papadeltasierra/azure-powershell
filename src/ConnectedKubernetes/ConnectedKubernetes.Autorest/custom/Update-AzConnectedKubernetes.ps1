@@ -45,6 +45,10 @@ function Update-AzConnectedKubernetes {
 [OutputType([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20221001Preview.IConnectedCluster])]
 [CmdletBinding(DefaultParameterSetName='UpdateExpanded', PositionalBinding=$false, SupportsShouldProcess, ConfirmImpact='Medium')]
 param(
+    // !!PDS: Need to add the new parameters here.  
+    // !!PDS: Need to extend the helm code to pass along.
+    // !!PDS: Need to switch from REST PATCH to REST PUT and maybe rename to Set-...
+
     [Parameter(ParameterSetName='UpdateExpanded', Mandatory)]
     [Alias('Name')]
     [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Path')]

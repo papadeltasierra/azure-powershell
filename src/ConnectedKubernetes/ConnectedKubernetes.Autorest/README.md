@@ -43,6 +43,8 @@ In this directory, run AutoRest:
 ### AutoRest Configuration
 > see https://aka.ms/autorest
 
+!!PDS: Confirm that some of the settings below have to change and that we want to create Set... and not Update... now.
+
 ``` yaml
 commit: ac6324d13863e8157f4b392ef0ceef1e86eea935
 require:
