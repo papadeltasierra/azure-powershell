@@ -354,6 +354,7 @@ function New-AzConnectedKubernetes {
         #Endregion
 
         if ($null -ne $ReleaseNamespace) {
+            # !!PDS: Is this a bug?  "--namespace $ReleaseNamespace" surely?
             $Configmap = kubectl get configmap --namespace azure-arc azure-clusterconfig -o json --kubeconfig $KubeConfig | ConvertFrom-Json
             $ConfigmapRgName = $Configmap.data.AZURE_RESOURCE_GROUP
             $ConfigmapClusterName = $Configmap.data.AZURE_RESOURCE_NAME
@@ -361,13 +362,16 @@ function New-AzConnectedKubernetes {
                 $ExistConnectedKubernetes = Get-AzConnectedKubernetes -ResourceGroupName $ConfigmapRgName -ClusterName $ConfigmapClusterName @CommonPSBoundParameters
         
                 if (($ResourceGroupName -eq $ConfigmapRgName) -and ($ClusterName -eq $ConfigmapClusterName)) {
+                    # !!PDS: Looks like this performs a re-PUT of an existing connected cluster.
                     $PSBoundParameters.Add('AgentPublicKeyCertificate', $ExistConnectedKubernetes.AgentPublicKeyCertificate)
                     return Az.ConnectedKubernetes.internal\New-AzConnectedKubernetes @PSBoundParameters
                 } else {
+                    # # !!PDS: We have a cluster something with the same Kubernetes settings but already associated via a different RG - error!
                     Write-Error "The kubernetes cluster you are trying to onboard is already onboarded to the resource group '${ConfigmapRgName}' with resource name '${ConfigmapClusterName}'."
                 }
                 return
             } catch {
+                # !!PDS: Why would we do this?  Surely we should not be deleting existing resources?
                 helm delete azure-arc --namespace $ReleaseNamespace --kubeconfig $KubeConfig --kube-context $KubeContext
             }
         }
@@ -413,6 +417,9 @@ function New-AzConnectedKubernetes {
             $HeaderParameter = @{
                 "Authorization" = "Bearer $AccessToken"
             }
+
+            # !!PDS This appears to be where we (might) query the configuration DP.
+            # !!PDS: except we only seem to be requesting the helm chart registry path.
             $Response = Invoke-WebRequest -Uri $Uri -Headers $HeaderParameter -Method Post -UseBasicParsing
             if ($Response.StatusCode -eq 200) {
                 $RegisteryPath = ($Response.Content | ConvertFrom-Json).repositoryPath
@@ -438,6 +445,7 @@ function New-AzConnectedKubernetes {
             $ChartExportPath = Join-Path -Path $Home -ChildPath '.azure' | Join-Path -ChildPath 'AzureArcCharts'
         }
         try {
+            # !!PDS: Exporting a helm chart creates a local copy.
             helm chart export $RegisteryPath --kubeconfig $KubeConfig --kube-context $KubeContext --destination $ChartExportPath
         } catch {
             throw "Unable to export helm chart from the registery $RegisteryPath"
@@ -480,6 +488,8 @@ function New-AzConnectedKubernetes {
             $HttpProxyStr = $HttpProxyStr -replace '/','\/'
             $options += " --set global.httpProxy=$HttpProxyStr"
             $proxyEnableState = $true
+            # !!PDS: Note how we are removing k8s parameters from the list of
+            #        parameters to pass to the internal command.
             $Null = $PSBoundParameters.Remove('HttpProxy')
         }
         if (-not ([string]::IsNullOrEmpty($HttpsProxy))) {
@@ -554,6 +564,7 @@ function New-AzConnectedKubernetes {
         $Response = Az.ConnectedKubernetes.internal\New-AzConnectedKubernetes @PSBoundParameters
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
+        # !!PDS: I think we might have done above, but why are we setting many options?
         $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id        
         try {
             helm upgrade --install azure-arc $ChartPath --namespace $ReleaseInstallNamespace --create-namespace --set global.subscriptionId=$SubscriptionId --set global.resourceGroupName=$ResourceGroupName --set global.resourceName=$ClusterName --set global.tenantId=$TenantId --set global.location=$Location --set global.onboardingPrivateKey=$AgentPrivateKey --set systemDefaultValues.spnOnboarding=false --set global.azureEnvironment=AZUREPUBLICCLOUD --set systemDefaultValues.clusterconnect-agent.enabled=true --set global.kubernetesDistro=$Distribution --set global.kubernetesInfra=$Infrastructure (-split $options)
@@ -561,5 +572,205 @@ function New-AzConnectedKubernetes {
             throw "Unable to install helm chart at $ChartPath"
         }
         Return $Response
+    }
+}
+
+# !!PDS: These copied wholesale from az cli.  How do we reproduce them for Powereshell?
+
+# def health_check_dp(cmd, config_dp_endpoint):
+#     # Setting uri
+#     api_version = "2024-07-01-preview"
+#     chart_location_url_segment = "azure-arc-k8sagents/healthCheck?api-version={}".format(api_version)
+#     chart_location_url = "{}/{}".format(config_dp_endpoint, chart_location_url_segment)
+#     uri_parameters = []
+#     resource = cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+#     headers = None
+#     if os.getenv('AZURE_ACCESS_TOKEN'):
+#         headers = ["Authorization=Bearer {}".format(os.getenv('AZURE_ACCESS_TOKEN'))]
+#     # Sending request with retries
+#     r = send_request_with_retries(cmd.cli_ctx, 'post', chart_location_url, headers=headers, fault_type=consts.Get_HelmRegistery_Path_Fault_Type, summary='Error while performing DP health check', uri_parameters=uri_parameters, resource=resource)
+#     if r.status_code == 200:
+#         print("Health check for DP is successful.")
+#         return True
+#     else:
+#         telemetry.set_exception(exception="Error while performing DP health check", fault_type=consts.DP_Health_Check,
+#                                     summary='Error while performing DP health check')
+#         raise CLIInternalError("Error while performing DP health check")
+
+function Invoke-HealthCheckDP {
+    param (
+        [object]$cmd,
+        [string]$configDPEndpoint
+    )
+
+    # Setting uri
+    $apiVersion = "2024-07-01-preview"
+    $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
+    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
+    $uriParameters = @()
+    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $headers = $null
+    if ($env:AZURE_ACCESS_TOKEN) {
+        $headers = @{"Authorization"="Bearer $($env:AZURE_ACCESS_TOKEN)"}
+    }
+
+    # Sending request with retries
+    $r = function Invoke-HealthCheckDP {
+    param (
+        [object]$cmd,
+        [string]$configDPEndpoint
+    )
+
+    # Setting uri
+    $apiVersion = "2024-07-01-preview"
+    $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
+    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
+    $uriParameters = @()
+    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $headers = $null
+    if ($env:AZURE_ACCESS_TOKEN) {
+        $headers = @{"Authorization"="Bearer $($env:AZURE_ACCESS_TOKEN)"}
+    }
+
+    # Sending request with retries
+    # !!PDS: Need to define/replace the method below.
+    $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
+    if ($r.StatusCode -eq 200) {
+        Write-Output "Health check for DP is successful."
+        return $true
+    }
+    else {
+        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
+    }
+    if ($r.StatusCode -eq 200) {
+        Write-Output "Health check for DP is successful."
+        return $true
+    }
+    else {
+        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
+    }
+}
+
+# def get_helm_values(cmd, config_dp_endpoint, release_train_custom=None, request_body=None):
+#     # Setting uri
+#     api_version = "2024-07-01-preview"
+#     chart_location_url_segment = "azure-arc-k8sagents/GetHelmSettings?api-version={}".format(api_version)
+#     release_train = os.getenv('RELEASETRAIN') if os.getenv('RELEASETRAIN') else 'stable'
+#     chart_location_url = "{}/{}".format(config_dp_endpoint, chart_location_url_segment)
+#     if release_train_custom:
+#         release_train = release_train_custom
+#     uri_parameters = ["releaseTrain={}".format(release_train)]
+#     resource = cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+#     headers = None
+#     if os.getenv('AZURE_ACCESS_TOKEN'):
+#         headers = ["Authorization=Bearer {}".format(os.getenv('AZURE_ACCESS_TOKEN'))]
+#     # Sending request with retries
+#     r = send_request_with_retries(cmd.cli_ctx, 'post', chart_location_url, headers=headers, fault_type=consts.Get_HelmRegistery_Path_Fault_Type, summary='Error while fetching helm chart registry path', uri_parameters=uri_parameters, resource=resource, request_body=request_body)
+#     if r.content:
+#         try:
+#             return r.json()
+#         except Exception as e:
+#             telemetry.set_exception(exception=e, fault_type=consts.Get_HelmRegistery_Path_Fault_Type,
+#                                     summary='Error while fetching helm values from DP')
+#             raise CLIInternalError("Error while fetching helm values from DP from JSON response: " + str(e))
+#     else:
+#         telemetry.set_exception(exception='No content in response', fault_type=consts.Get_HelmRegistery_Path_Fault_Type,
+#                                 summary='No content in acr path response')
+#         raise CLIInternalError("No content was found in helm registry path response.")
+
+function Invoke-RestMethodWithRetries {
+    param ()
+    [string]$cli_ctx
+    [string]$method
+    [string]$url
+    [string]$headers
+    # [string]$faultType
+    # [string]$summary
+    [hashtable]$uriParameters
+    [string]$resource
+    [string]$requestBody = ""
+    [integer]$retryCount = 5
+    [integer]$retryDelay = 3
+
+    $thisRetry = 0
+    $success = $false
+
+    # !!PDS: Are we going to have to reproduce the resource extraction logic and the CLI context?
+    # !!PDS: We do somehow need to get an Azure token so need a resource ID from somewhere.
+    # !!PDS: We are using this to access the Cluster Config DP so does that even have a 
+    #        resource and does it require an Azure token?  Or do we base this on the 
+    #        Arc connected cluster that we have created/are creating?
+
+    # Add URI parameters to end of URL if there are any.
+    if ($uriParameters.Count() -gt 0) {
+        # Create an array by joining hash index and value using '=' and join them using '&'
+        $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
+        $url = "$url?$uriParametersArray"
+    }
+
+    while (-not $success -and $thisRetry -lt $retryCount) {
+        try {
+            $response = Invoke-RestMethod -Uri $url -Method $method -Headers $headers -Body $requestBody -ContentType "application/json"
+            # Assuming success if no exception is thrown
+            $success = $true
+            Write-Output "Request successful."
+        }
+        catch {
+            $thisCount++
+            Write-Warning "Attempt $thisRetry of $retryCount failed: $_"
+            Start-Sleep -Seconds $retryDelay
+        }
+    }
+
+    if (-not $success) {
+        throw "Failed to complete request after $retryCount attempts."
+    }
+
+    return $response
+}
+
+
+function Get-HelmValues {
+    param (
+        [object]$cmd,
+        [string]$configDPEndpoint,
+        [string]$releaseTrainCustom,
+        [object]$requestBody
+    )
+
+    # Setting uri
+    $apiVersion = "2024-07-01-preview"
+    $chartLocationUrlSegment = "azure-arc-k8sagents/GetHelmSettings?api-version=$apiVersion"
+    $releaseTrain = if ($env:RELEASETRAIN) { $env:RELEASETRAIN } else { "stable" }
+    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
+    if ($releaseTrainCustom) {
+        $releaseTrain = $releaseTrainCustom
+    }
+    $uriParameters = @("releaseTrain=$releaseTrain")
+
+    # !!PDS: not clear how we reproduce this.  I guess this is a resource from somewhere?
+    #        But ideally not the resource ID we started with?  Did it get updated?
+    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $headers = $null
+    if ($env:AZURE_ACCESS_TOKEN) {
+        $headers = @{Authorization = "Bearer $($env:AZURE_ACCESS_TOKEN)"}
+    }
+
+    # Sending request with retries
+    # !!PDS: Creating somethig like this.
+    # $r = Send-RequestWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
+    $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
+    if ($r.StatusCode -ne 200) {
+        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
+    }
+
+    if ($r.content) {
+        try {
+            return $r.json()
+        }
+        catch {
+            $exception = $_
+            Set-TelemetryException -exception $exception -faultType $consts.Get_HelmRegistery_Path_Fault        
+        }
     }
 }
