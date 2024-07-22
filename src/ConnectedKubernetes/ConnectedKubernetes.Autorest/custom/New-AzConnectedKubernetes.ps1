@@ -36,6 +36,7 @@ function New-AzConnectedKubernetes {
 
         // !!PDS: Need to add the new parameters here.  
         // !!PDS: Need to extend the helm code to pass along.
+        // Maybe not if they come from the Cluster Config DP automatically.
 
         [Parameter(Mandatory)]
         [Alias('Name')]
@@ -240,6 +241,19 @@ function New-AzConnectedKubernetes {
         [System.Management.Automation.SwitchParameter]
         # Use the default credentials for the proxy
         ${ProxyUseDefaultCredentials}
+
+        [Parameter()]
+        [ValidateSet("gateway", "direct")]
+        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
+        [System.String]
+        # Azure connections are either direct or via an Arc Gateway
+        ${ConnectionType}
+
+        [Parameter()]
+        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
+        [System.String]
+        # Arc Gateway resource Id
+        ${GatewayResoureceId}
     )
 
     process {
@@ -280,6 +294,15 @@ function New-AzConnectedKubernetes {
         }
         if (($null -eq $KubeContext) -or ($KubeContext -eq '')) {
             $KubeContext = kubectl config current-context
+        }
+
+        if ($PSBoundParameters.ContainsKey('ConnectionType')) {
+            if ($ConnectionType.Equals("direct")) {
+                if ($PSBoundParameters.ContainsKey('GatewayResourceId')) {
+                    Write-Error 'GatewayResourceId should not be provided when ConnectionType is "direct".'
+                    return
+                }
+            }
         }
         
         $CommonPSBoundParameters = @{}
@@ -443,6 +466,11 @@ function New-AzConnectedKubernetes {
             $ChartPath = $HelmChartPath
         }
 
+        # !!PDS: Appears that we ignore the cluster config DP and generate
+        #        config ourselves here.  This might be a change that we have to
+        #        make as part of this work.
+        # !!PDS: Add gateway stuff here?
+
         #Region helm options
         $options = ""
         $proxyEnableState = $false
@@ -521,9 +549,11 @@ function New-AzConnectedKubernetes {
             }
         }
 
+        # !!PDS: Here is the spot where we send the configuration to Azure.
         $PSBoundParameters.Add('AgentPublicKeyCertificate', $AgentPublicKey)
         $Response = Az.ConnectedKubernetes.internal\New-AzConnectedKubernetes @PSBoundParameters
 
+        # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id        
         try {
             helm upgrade --install azure-arc $ChartPath --namespace $ReleaseInstallNamespace --create-namespace --set global.subscriptionId=$SubscriptionId --set global.resourceGroupName=$ResourceGroupName --set global.resourceName=$ClusterName --set global.tenantId=$TenantId --set global.location=$Location --set global.onboardingPrivateKey=$AgentPrivateKey --set systemDefaultValues.spnOnboarding=false --set global.azureEnvironment=AZUREPUBLICCLOUD --set systemDefaultValues.clusterconnect-agent.enabled=true --set global.kubernetesDistro=$Distribution --set global.kubernetesInfra=$Infrastructure (-split $options)
