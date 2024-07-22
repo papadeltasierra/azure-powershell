@@ -559,15 +559,64 @@ function New-AzConnectedKubernetes {
             }
         }
 
+        # !!PDS: Check the health of the config DP before we proceed.
+        ????
+
         # !!PDS: Here is the spot where we send the configuration to Azure.
         $PSBoundParameters.Add('AgentPublicKeyCertificate', $AgentPublicKey)
         $Response = Az.ConnectedKubernetes.internal\New-AzConnectedKubernetes @PSBoundParameters
+
+        # !!PDS: Query the config DP for the helm chart registry path etc.
+        # !!PDS: What below comes from the config DP and what comes as input?
+
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         # !!PDS: I think we might have done above, but why are we setting many options?
         $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id        
         try {
-            helm upgrade --install azure-arc $ChartPath --namespace $ReleaseInstallNamespace --create-namespace --set global.subscriptionId=$SubscriptionId --set global.resourceGroupName=$ResourceGroupName --set global.resourceName=$ClusterName --set global.tenantId=$TenantId --set global.location=$Location --set global.onboardingPrivateKey=$AgentPrivateKey --set systemDefaultValues.spnOnboarding=false --set global.azureEnvironment=AZUREPUBLICCLOUD --set systemDefaultValues.clusterconnect-agent.enabled=true --set global.kubernetesDistro=$Distribution --set global.kubernetesInfra=$Infrastructure (-split $options)
+            helm upgrade `
+            --install azure-arc `
+            $ChartPath `
+            --namespace $ReleaseInstallNamespace `
+            --create-namespace `
+            --set global.subscriptionId=$SubscriptionId `
+            --set global.resourceGroupName=$ResourceGroupName `
+            --set global.resourceName=$ClusterName `
+            --set global.tenantId=$TenantId `
+            --set global.location=$Location `
+            --set global.onboardingPrivateKey=$AgentPrivateKey `
+            --set systemDefaultValues.spnOnboarding=false `
+            --set global.azureEnvironment=AZUREPUBLICCLOUD `
+            --set systemDefaultValues.clusterconnect-agent.enabled=true `
+            --set global.kubernetesDistro=$Distribution `
+            --set global.kubernetesInfra=$Infrastructure (-split $options)
+
+        # !!PDS: How does the above match up against this from the az cli?
+        # !!PDS: Stuff that is not obvouus gets expanded into the request body
+        #        but how does this happen normally?  Not clear how these values
+        #        are all expanded.  e.g. "helm_content_values"?
+        # !!PDS: At least some of this is protected/unprotected values (which are new?).
+        # utils.helm_install_release(
+        #     cmd.cli_ctx.cloud.endpoints.resource_manager,
+        #     chart_path,
+        #     kubernetes_distro,        Yes, global.KuberetesDistro
+        #     kubernetes_infra,         Yes, global.KubernetesInfra
+        #     location,                 Yes, global.Location
+        #     private_key_pem,          Yes, global.OnboardingPrivateKey
+        #     kube_config,              Passed verbatim as "--kubeconfig" but how above?
+        #     kube_context,             Ditto.
+        #     no_wait,                  Controls whether timeout applies - see below.
+        #     values_file,              "-f" option to helm command.
+        #     azure_cloud,              Maybe, global.AzureEnvironment
+        #     enable_custom_locations,  Works with/against private link?
+        #     custom_locations_oid,     Works with/against private link?
+        #     helm_client_location,     This is the actual help client to run!
+        #     enable_private_link,      Works with/against custom locations?
+        #     arm_metadata,             Seems to define endpoints etc and get added as set values.
+        #     onboarding_timeout,       Sets a "--wait, --timeout" options to command if not "nowait".
+        #     helm_content_values,      Expanded as "set <thing>=<whotsit>" values; required?
+        #     )
+
         } catch {
             throw "Unable to install helm chart at $ChartPath"
         }
@@ -598,24 +647,6 @@ function New-AzConnectedKubernetes {
 #         raise CLIInternalError("Error while performing DP health check")
 
 function Invoke-HealthCheckDP {
-    param (
-        [object]$cmd,
-        [string]$configDPEndpoint
-    )
-
-    # Setting uri
-    $apiVersion = "2024-07-01-preview"
-    $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
-    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
-    $uriParameters = @()
-    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
-    $headers = $null
-    if ($env:AZURE_ACCESS_TOKEN) {
-        $headers = @{"Authorization"="Bearer $($env:AZURE_ACCESS_TOKEN)"}
-    }
-
-    # Sending request with retries
-    $r = function Invoke-HealthCheckDP {
     param (
         [object]$cmd,
         [string]$configDPEndpoint
@@ -750,6 +781,8 @@ function Get-HelmValues {
 
     # !!PDS: not clear how we reproduce this.  I guess this is a resource from somewhere?
     #        But ideally not the resource ID we started with?  Did it get updated?
+    # !!PDS: Or perhaps we don't care for Powershell?  Does it set authentication via
+    #        other methods?
     $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
     $headers = $null
     if ($env:AZURE_ACCESS_TOKEN) {
