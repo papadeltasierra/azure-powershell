@@ -33,11 +33,6 @@ function New-AzConnectedKubernetes {
     [OutputType([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20221001Preview.IConnectedCluster])]
     [CmdletBinding(DefaultParameterSetName='CreateExpanded', PositionalBinding=$false, SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
-
-        # !!PDS: Need to add the new parameters here.  
-        # !!PDS: Need to extend the helm code to pass along.
-        # Maybe not if they come from the Cluster Config DP automatically.
-
         [Parameter(Mandatory)]
         [Alias('Name')]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Path')]
@@ -371,6 +366,7 @@ function New-AzConnectedKubernetes {
                 }
                 return
             } catch {
+                # This is attempting to delete Azure Arc resources that are orphaned.
                 # !!PDS: Why would we do this?  Surely we should not be deleting existing resources?
                 helm delete azure-arc --namespace $ReleaseNamespace --kubeconfig $KubeConfig --kube-context $KubeContext
             }
@@ -564,11 +560,9 @@ function New-AzConnectedKubernetes {
 
         $valuesFile = Get-ValuesFile
         $armMetadata = Get-Metadata -ArmEndpoint 'https://azure.com'
-        # $configDPEndpoint, $releaseTrain = Get-ConfigDPEndpoint -cmd $cmd -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
         $configDpinfo = Get-ConfigDPEndpoint -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
         $configDPEndpoint = $configDpInfo.configDPEndpoint
 
-        # Invoke-HealthCheckDP -cmd $cmd -configDPEndpoint $ConfigDPEndpoint
         Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint
 
         # !!PDS: Here is the spot where we send the configuration to Azure.
@@ -580,19 +574,10 @@ function New-AzConnectedKubernetes {
 
 
         # Retrieving Helm chart OCI (Open Container Initiative) Artifact location
-        # helm_values_dp = utils.get_helm_values(
-        #     cmd, config_dp_endpoint, release_train, request_body=put_cc_response.as_dict()
-        # )
-
         $helmValuesDp = Get-HelmValues -cmd $cmd -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
 
         # Allow a custom OCI registry to be set via environment variables.
         # !!PDS: Where are these variables documented?  Should they be?
-        # registry_path = (
-        #     os.getenv("HELMREGISTRY")
-        #     if os.getenv("HELMREGISTRY")
-        #     else helm_values_dp["repositoryPath"]
-        # )
         $registryPath = if ($env:HELMREGISTRY) { $env:HELMREGISTRY } else { $helmValuesDp.repositoryPath }
 
         $helmContentValues = $helmValuesDp["helmValuesContent"]
@@ -606,14 +591,7 @@ function New-AzConnectedKubernetes {
         # )
 
         # Get helm chart path (within the OCI registry).
-        # chart_path = utils.get_chart_path(
-        #     registry_path, kube_config, kube_context, helm_client_location
-        # )
         $chartPath = Get-ChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
-
-        # # Substitute any protected helm values as the value for that will be null
-        # for helm_parameter, helm_value in protected_helm_values.items():
-        #     helm_content_values[helm_parameter] = helm_value
 
         # Substitute any protected helm values as the value for that will be null
         foreach ($item in $protectedHelmValues.GetEnumerator()) {
@@ -674,28 +652,6 @@ function New-AzConnectedKubernetes {
     }
 }
 
-# !!PDS: These copied wholesale from az cli.  How do we reproduce them for Powereshell?
-
-# def health_check_dp(cmd, config_dp_endpoint):
-#     # Setting uri
-#     api_version = "2024-07-01-preview"
-#     chart_location_url_segment = "azure-arc-k8sagents/healthCheck?api-version={}".format(api_version)
-#     chart_location_url = "{}/{}".format(config_dp_endpoint, chart_location_url_segment)
-#     uri_parameters = []
-#     resource = cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
-#     headers = None
-#     if os.getenv('AZURE_ACCESS_TOKEN'):
-#         headers = ["Authorization=Bearer {}".format(os.getenv('AZURE_ACCESS_TOKEN'))]
-#     # Sending request with retries
-#     r = send_request_with_retries(cmd.cli_ctx, 'post', chart_location_url, headers=headers, fault_type=consts.Get_HelmRegistery_Path_Fault_Type, summary='Error while performing DP health check', uri_parameters=uri_parameters, resource=resource)
-#     if r.status_code == 200:
-#         print("Health check for DP is successful.")
-#         return True
-#     else:
-#         telemetry.set_exception(exception="Error while performing DP health check", fault_type=consts.DP_Health_Check,
-#                                     summary='Error while performing DP health check')
-#         raise CLIInternalError("Error while performing DP health check")
-
 function Invoke-HealthCheckDP {
     param (
         [object]$cmd,
@@ -715,8 +671,6 @@ function Invoke-HealthCheckDP {
     }
 
     # Sending request with retries
-    # !!PDS: Need to define/replace the method below.
-    # $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
     $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
     if ($r.StatusCode -eq 200) {
         Write-Output "Health check for DP is successful."
@@ -844,12 +798,9 @@ function Get-HelmValues {
     }
 
     # Sending request with retries
-    # !!PDS: Creating somethig like this.
-    # $r = Send-RequestWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
-    # $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
     $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
     if ($r.StatusCode -ne 200) {
-        # !!PDS: But this does nothing?
+        # !!PDS: But this does nothing?  
         [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
     }
 
@@ -863,155 +814,6 @@ function Get-HelmValues {
         }
     }
 }
-
-
-# def send_raw_request(cli_ctx, method, url, headers=None, uri_parameters=None,  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-#                      body=None, skip_authorization_header=False, resource=None, output_file=None,
-#                      generated_client_request_id_name='x-ms-client-request-id'):
-#     import uuid
-#     from requests import Session, Request
-#     from requests.structures import CaseInsensitiveDict
-# 
-#     result = CaseInsensitiveDict()
-#     for s in headers or []:
-#         try:
-#             temp = shell_safe_json_parse(s)
-#             result.update(temp)
-#         except CLIError:
-#             key, value = s.split('=', 1)
-#             result[key] = value
-#     headers = result
-# 
-#     # If Authorization header is already provided, don't bother with the token
-#     if 'Authorization' in headers:
-#         skip_authorization_header = True
-# 
-#     # Handle User-Agent
-#     agents = [get_az_rest_user_agent()]
-# 
-#     # Borrow AZURE_HTTP_USER_AGENT from msrest
-#     # https://github.com/Azure/msrest-for-python/blob/4cc8bc84e96036f03b34716466230fb257e27b36/msrest/pipeline/universal.py#L70
-#     _ENV_ADDITIONAL_USER_AGENT = 'AZURE_HTTP_USER_AGENT'
-#     if _ENV_ADDITIONAL_USER_AGENT in os.environ:
-#         agents.append(os.environ[_ENV_ADDITIONAL_USER_AGENT])
-# 
-#     # Custom User-Agent provided as command argument
-#     if 'User-Agent' in headers:
-#         agents.append(headers['User-Agent'])
-#     headers['User-Agent'] = ' '.join(agents)
-# 
-#     from azure.cli.core.telemetry import set_user_agent
-#     set_user_agent(headers['User-Agent'])
-# 
-#     if generated_client_request_id_name:
-#         headers[generated_client_request_id_name] = str(uuid.uuid4())
-# 
-#     # try to figure out the correct content type
-#     if body:
-#         try:
-#             body_object = shell_safe_json_parse(body)
-#             # Make sure Unicode characters are escaped as ASCII by utilizing the default ensure_ascii=True kwarg
-#             # of json.dumps, since http.client by default encodes the body as latin-1:
-#             # https://github.com/python/cpython/blob/3.10/Lib/http/client.py#L164
-#             # https://github.com/python/cpython/blob/3.10/Lib/http/client.py#L1324-L1327
-#             body = json.dumps(body_object)
-#             if 'Content-Type' not in headers:
-#                 headers['Content-Type'] = 'application/json'
-#         except Exception:  # pylint: disable=broad-except
-#             pass
-# 
-#     # add telemetry
-#     headers['CommandName'] = cli_ctx.data['command']
-#     if cli_ctx.data.get('safe_params'):
-#         headers['ParameterSetName'] = ' '.join(cli_ctx.data['safe_params'])
-# 
-#     result = {}
-#     for s in uri_parameters or []:
-#         try:
-#             temp = shell_safe_json_parse(s)
-#             result.update(temp)
-#         except CLIError:
-#             key, value = s.split('=', 1)
-#             result[key] = value
-#     uri_parameters = result or None
-# 
-#     endpoints = cli_ctx.cloud.endpoints
-#     # If url is an ARM resource ID, like /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01,
-#     # default to Azure Resource Manager.
-#     # https://management.azure.com + /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01
-#     if '://' not in url:
-#         url = endpoints.resource_manager.rstrip('/') + url
-# 
-#     # Replace common tokens with real values. It is for smooth experience if users copy and paste the url from
-#     # Azure Rest API doc
-#     from azure.cli.core._profile import Profile
-#     profile = Profile(cli_ctx=cli_ctx)
-#     if '{subscriptionId}' in url:
-#         url = url.replace('{subscriptionId}', cli_ctx.data['subscription_id'] or profile.get_subscription_id())
-# 
-#     # Prepare the Bearer token for `Authorization` header
-#     if not skip_authorization_header and url.lower().startswith('https://'):
-#         # Prepare `resource` for `get_raw_token`
-#         if not resource:
-#             # If url starts with ARM endpoint, like `https://management.azure.com/`,
-#             # use `active_directory_resource_id` for resource, like `https://management.core.windows.net/`.
-#             # This follows the same behavior as `azure.cli.core.commands.client_factory._get_mgmt_service_client`
-#             if url.lower().startswith(endpoints.resource_manager.rstrip('/')):
-#                 resource = endpoints.active_directory_resource_id
-#             else:
-#                 from azure.cli.core.cloud import CloudEndpointNotSetException
-#                 for p in [x for x in dir(endpoints) if not x.startswith('_')]:
-#                     try:
-#                         value = getattr(endpoints, p)
-#                     except CloudEndpointNotSetException:
-#                         continue
-#                     if isinstance(value, str) and url.lower().startswith(value.lower()):
-#                         resource = value
-#                         break
-#         if resource:
-#             # Prepare `subscription` for `get_raw_token`
-#             # If this is an ARM request, try to extract subscription ID from the URL.
-#             # But there are APIs which don't require subscription ID, like /subscriptions, /tenants
-#             # TODO: In the future when multi-tenant subscription is supported, we won't be able to uniquely identify
-#             #   the token from subscription anymore.
-#             token_subscription = None
-#             if url.lower().startswith(endpoints.resource_manager.rstrip('/')):
-#                 token_subscription = _extract_subscription_id(url)
-#             if token_subscription:
-#                 logger.debug('Retrieving token for resource %s, subscription %s', resource, token_subscription)
-#                 token_info, _, _ = profile.get_raw_token(resource, subscription=token_subscription)
-#             else:
-#                 logger.debug('Retrieving token for resource %s', resource)
-#                 token_info, _, _ = profile.get_raw_token(resource)
-#             token_type, token, _ = token_info
-#             headers = headers or {}
-#             headers['Authorization'] = '{} {}'.format(token_type, token)
-#         else:
-#             logger.warning("Can't derive appropriate Azure AD resource from --url to acquire an access token. "
-#                            "If access token is required, use --resource to specify the resource")
-# 
-#     # https://requests.readthedocs.io/en/latest/user/advanced/#prepared-requests
-#     s = Session()
-#     req = Request(method=method, url=url, headers=headers, params=uri_parameters, data=body)
-#     prepped = s.prepare_request(req)
-# 
-#     # Merge environment settings into session
-#     settings = s.merge_environment_settings(prepped.url, {}, None, not should_disable_connection_verify(), None)
-#     _log_request(prepped)
-#     r = s.send(prepped, **settings)
-#     _log_response(r)
-# 
-#     if not r.ok:
-#         reason = r.reason
-#         if r.text:
-#             reason += '({})'.format(r.text)
-#         from .azclierror import HTTPError
-#         raise HTTPError(reason, r)
-#     if output_file:
-#         with open(output_file, 'wb') as fd:
-#             for chunk in r.iter_content(chunk_size=128):
-#                 fd.write(chunk)
-#     return r
 
 function Invoke-RawRequest {
     param (
@@ -1056,7 +858,7 @@ function Invoke-RawRequest {
         $skip_authorization_header = $true
     }
 
-    # Assume that using the Get-InvokeRest method will set the user-agent
+    # !!PDS: Assume that using the Get-InvokeRest method will set the user-agent
     # accordingly so we do not need to do that here.
     # Handle User-Agent
     # !!PDS: This does not exist until we implement it!
@@ -1130,6 +932,7 @@ function Invoke-RawRequest {
     }
 
     # !!PDS: We do not expect customers to be doing anything like this with connected clusters.
+    # !!PDS: Does imply that this is a general purpose function and heree might be more to trim!
     # # Replace common tokens with real values. It is for smooth experience if users copy and paste the url from
     # # Azure Rest API doc
     # # $cliProfile = [Azure.Cli.Core.Profile]::new($cli_ctx)
@@ -1194,18 +997,9 @@ function Invoke-RawRequest {
         }
     }
 
-    # !!PDS: no need to create a session as Invoke-RestMethod does this for us.
-    # # Create a new PowerShell session to send the HTTP request
-    # $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-
     # Prepare the request
     $uri = $url + '?' + ($uri_parameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '&'
     $method = $method.ToUpper()
-
-    # # Configure session options
-    # if (-not $shouldDisableConnectionVerify) {
-    #     $session.Certificates = [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
-    # }
 
     # !!PDS: Look for Write-Log... and similar
     # Log the request (assuming _LogRequest is a function you've defined to log requests)
@@ -1256,7 +1050,6 @@ function Get-SubscriptionIdFromResourceId {
     # Return the value after "subscriptions"
     return $urlParts[$subscriptionIndex + 1]
 }
-
 
 function Get-ConfigDpEndpoint {
     param (
