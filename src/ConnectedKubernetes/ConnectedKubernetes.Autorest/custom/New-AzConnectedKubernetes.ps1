@@ -34,9 +34,9 @@ function New-AzConnectedKubernetes {
     [CmdletBinding(DefaultParameterSetName='CreateExpanded', PositionalBinding=$false, SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
 
-        // !!PDS: Need to add the new parameters here.  
-        // !!PDS: Need to extend the helm code to pass along.
-        // Maybe not if they come from the Cluster Config DP automatically.
+        # !!PDS: Need to add the new parameters here.  
+        # !!PDS: Need to extend the helm code to pass along.
+        # Maybe not if they come from the Cluster Config DP automatically.
 
         [Parameter(Mandatory)]
         [Alias('Name')]
@@ -240,14 +240,14 @@ function New-AzConnectedKubernetes {
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.Management.Automation.SwitchParameter]
         # Use the default credentials for the proxy
-        ${ProxyUseDefaultCredentials}
+        ${ProxyUseDefaultCredentials},
 
         [Parameter()]
         [ValidateSet("gateway", "direct")]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.String]
         # Azure connections are either direct or via an Arc Gateway
-        ${ConnectionType}
+        ${ConnectionType},
 
         [Parameter()]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
@@ -560,7 +560,16 @@ function New-AzConnectedKubernetes {
         }
 
         # !!PDS: Check the health of the config DP before we proceed.
-        ????
+        # Perform DP health check
+
+        $valuesFile = Get-ValuesFile
+        $armMetadata = Get-Metadata -ArmEndpoint 'https://azure.com'
+        # $configDPEndpoint, $releaseTrain = Get-ConfigDPEndpoint -cmd $cmd -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
+        $configDpinfo = Get-ConfigDPEndpoint -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
+        $configDPEndpoint = $configDpInfo.configDPEndpoint
+
+        # Invoke-HealthCheckDP -cmd $cmd -configDPEndpoint $ConfigDPEndpoint
+        Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint
 
         # !!PDS: Here is the spot where we send the configuration to Azure.
         $PSBoundParameters.Add('AgentPublicKeyCertificate', $AgentPublicKey)
@@ -569,6 +578,47 @@ function New-AzConnectedKubernetes {
         # !!PDS: Query the config DP for the helm chart registry path etc.
         # !!PDS: What below comes from the config DP and what comes as input?
 
+
+        # Retrieving Helm chart OCI (Open Container Initiative) Artifact location
+        # helm_values_dp = utils.get_helm_values(
+        #     cmd, config_dp_endpoint, release_train, request_body=put_cc_response.as_dict()
+        # )
+
+        $helmValuesDp = Get-HelmValues -cmd $cmd -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
+
+        # Allow a custom OCI registry to be set via environment variables.
+        # !!PDS: Where are these variables documented?  Should they be?
+        # registry_path = (
+        #     os.getenv("HELMREGISTRY")
+        #     if os.getenv("HELMREGISTRY")
+        #     else helm_values_dp["repositoryPath"]
+        # )
+        $registryPath = if ($env:HELMREGISTRY) { $env:HELMREGISTRY } else { $helmValuesDp.repositoryPath }
+
+        $helmContentValues = $helmValuesDp["helmValuesContent"]
+
+        # !!PDS: Is there any telemetry in Powershell cmdlets?  
+        # # Get azure-arc agent version for telemetry
+        # azure_arc_agent_version = registry_path.split(":")[1]
+        # telemetry.add_extension_event(
+        #     "connectedk8s",
+        #     {"Context.Default.AzureCLI.AgentVersion": azure_arc_agent_version},
+        # )
+
+        # Get helm chart path (within the OCI registry).
+        # chart_path = utils.get_chart_path(
+        #     registry_path, kube_config, kube_context, helm_client_location
+        # )
+        $chartPath = Get-ChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
+
+        # # Substitute any protected helm values as the value for that will be null
+        # for helm_parameter, helm_value in protected_helm_values.items():
+        #     helm_content_values[helm_parameter] = helm_value
+
+        # Substitute any protected helm values as the value for that will be null
+        foreach ($item in $protectedHelmValues.GetEnumerator()) {
+            $helmContentValues[$item.Key] = $item.Value
+        }            
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         # !!PDS: I think we might have done above, but why are we setting many options?
@@ -1205,4 +1255,227 @@ function Get-SubscriptionIdFromResourceId {
 
     # Return the value after "subscriptions"
     return $urlParts[$subscriptionIndex + 1]
+}
+
+
+function Get-ConfigDpEndpoint {
+    param (
+        # [Parameter(Mandatory=$true)]
+        # $Cmd,
+        [Parameter(Mandatory=$true)]
+        $Location,
+        [Parameter(Mandatory=$true)]
+        $ValuesFile,
+        $ArmMetadata
+    )
+
+    $ReleaseTrain = $null
+    $ConfigDpEndpoint = $null
+
+    if (-not $ArmMetadata) {
+        # !!PDS: Need to write this.
+        $ArmMetadata = Get-Metadata -CloudEndpoint $Cmd.cli_ctx.cloud.endpoints.resource_manager
+    }
+
+    # !!PDS: No dogfood!
+    # # Read and validate the helm values file for Dogfood.
+    # if ($Cmd.cli_ctx.cloud.endpoints.resource_manager -eq $consts.Dogfood_RMEndpoint) {
+    #     # !!PDS Need to write this.
+    #     $result = Validate-EnvFileDogfood -ValuesFile $ValuesFile
+    #     $ConfigDpEndpoint = $result.ConfigDpEndpoint
+    #     $ReleaseTrain = $result.ReleaseTrain
+    # }
+
+    # Get the values or endpoints required for retrieving the Helm registry URL.
+    if ($ArmMetadata.dataplaneEndpoints -and $ArmMetadata.dataplaneEndpoints.arcConfigEndpoint) {
+        $ConfigDpEndpoint = $ArmMetadata.dataplaneEndpoints.arcConfigEndpoint
+    }
+    else {
+        Write-Debug "'arcConfigEndpoint' doesn't exist under 'dataplaneEndpoints' in the ARM metadata."
+    }
+
+    # Get the default config dataplane endpoint.
+    if (-not $ConfigDpEndpoint) {
+        # !!PDS: Need to write this.
+        $ConfigDpEndpoint = Get-DefaultConfigDpEndpoint -Cmd $Cmd -Location $Location
+    }
+
+    return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain }
+}    
+
+Function Get-Metadata {
+    param (
+        [string]$ArmEndpoint,
+        [string]$ApiVersion = "2022-09-01"
+    )
+
+    $MetadataUrlSuffix = "/metadata/endpoints?api-version=$ApiVersion"
+    $MetadataEndpoint = $null
+
+    try {
+        $MetadataEndpoint = $ArmEndpoint + $MetadataUrlSuffix
+        $Response = Invoke-RestMethod -Uri $MetadataEndpoint -Method Get
+
+        if ($Response.StatusCode -eq 200) {
+            return $Response
+        }
+        else {
+            $Msg = "ARM metadata endpoint '$MetadataEndpoint' returned status code $($Response.StatusCode)."
+            throw $Msg
+        }
+    }
+    catch {
+        $Msg = "Failed to request ARM metadata $MetadataEndpoint."
+        Write-Error "$Msg Please ensure you have network connection. Error: $_"
+    }
+}
+
+# !!PDS: Not sure there will ever be one of these!
+function Get-ValuesFile {
+    # !!PDS: Review this syntax and used elsewhere?
+    $valuesFile = $env:HELMVALUESPATH
+    if ($null -ne $valuesFile -and (Test-Path $valuesFile)) {
+        Write-Warning "Values file detected. Reading additional helm parameters from same."
+        # Trimming required for Windows OS
+        if ($valuesFile.StartsWith("'") -or $valuesFile.StartsWith('"')) {
+            $valuesFile = $valuesFile.Substring(1)
+        }
+        if ($valuesFile.EndsWith("'") -or $valuesFile.EndsWith('"')) {
+            $valuesFile = $valuesFile.Substring(0, $valuesFile.Length - 1)
+        }
+        return $valuesFile
+    }
+    return $null
+}
+
+function Get-HelmValues {
+    param (
+        [Parameter(Mandatory=$true)]
+        $Cmd,
+        [Parameter(Mandatory=$true)]
+        $ConfigDpEndpoint,
+        [string]$ReleaseTrainCustom,
+        $RequestBody
+    )
+
+    # Setting uri
+    $apiVersion = "2024-07-01-preview"
+    $chartLocationUrlSegment = "azure-arc-k8sagents/GetHelmSettings?api-version=$apiVersion"
+    $releaseTrain = if ($env:RELEASETRAIN) { $env:RELEASETRAIN } else { "stable" }
+    $chartLocationUrl = "$ConfigDpEndpoint/$chartLocationUrlSegment"
+    if ($ReleaseTrainCustom) {
+        $releaseTrain = $ReleaseTrainCustom
+    }
+    $uriParameters = @("releaseTrain=$releaseTrain")
+    $resource = $Cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $headers = @{}
+    if ($env:AZURE_ACCESS_TOKEN) {
+        $headers["Authorization"] = "Bearer $($env:AZURE_ACCESS_TOKEN)"
+    }
+
+    # Sending request with retries
+    try {
+        # $r = Send-RequestWithRetries -CmdCtx $Cmd.cli_ctx -Method 'post' -Url $chartLocationUrl -Headers $headers -FaultType $consts.Get_HelmRegistery_Path_Fault_Type -Summary 'Error while fetching helm chart registry path' -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody
+        $r = Invoke-RestMethodWithRetries -Method 'post' -Url $chartLocationUrl -Headers $headers -FaultType $consts.Get_HelmRegistery_Path_Fault_Type -Summary 'Error while fetching helm chart registry path' -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody
+        if ($r.Content) {
+            $responseJson = $r.Content | ConvertFrom-Json
+            return $responseJson
+        }
+        else {
+            [Microsoft.Azure.Commands.Common.Exceptions.CliInternalError]::new("No content was found in helm registry path response.")
+        }
+    }
+    catch {
+        $errorMessage = "Error while fetching helm values from DP from JSON response: $_"
+        Write-Error $errorMessage
+        throw $errorMessage
+    }
+}        
+
+function Get-ChartPath {
+    param (
+        [string]$RegistryPath,
+        [string]$KubeConfig,
+        [string]$KubeContext,
+        [string]$HelmClientLocation,
+        [string]$ChartFolderName = 'AzureArcCharts',
+        [string]$ChartName = 'azure-arc-k8sagents',
+        [bool]$NewPath = $true
+    )
+
+    # Exporting Helm chart
+    $ChartExportPath = Join-Path $env:USERPROFILE ('.azure', $ChartFolderName -join '\')
+    try {
+        if (Test-Path $ChartExportPath) {
+            Remove-Item $ChartExportPath -Recurse -Force
+        }
+    }
+    catch {
+        Write-Warning "Unable to cleanup the $ChartFolderName already present on the machine. In case of failure, please cleanup the directory '$ChartExportPath' and try again."
+    }
+
+    Get-HelmChart -RegistryPath $RegistryPath -ChartExportPath $ChartExportPath -KubeConfig $KubeConfig -KubeContext $KubeContext -HelmClientLocation $HelmClientLocation -NewPath $NewPath -ChartName $ChartName
+
+    # Returning helm chart path
+    $HelmChartPath = Join-Path $ChartExportPath $ChartName
+    if ($ChartFolderName -eq $consts.Pre_Onboarding_Helm_Charts_Folder_Name) {
+        $ChartPath = $HelmChartPath
+    }
+    else {
+        $ChartPath = if ($env:HELMCHART) { $env:HELMCHART } else { $HelmChartPath }
+    }
+
+    return $ChartPath
+}
+
+function Get-HelmChart {
+    param (
+        [string]$RegistryPath,
+        [string]$ChartExportPath,
+        [string]$KubeConfig,
+        [string]$KubeContext,
+        [string]$HelmClientLocation,
+        [bool]$NewPath,
+        [string]$ChartName = 'azure-arc-k8sagents',
+        [int]$RetryCount = 5,
+        [int]$RetryDelay = 3
+    )
+
+    $chartUrl = $RegistryPath.Split(':')[0]
+    $chartVersion = $RegistryPath.Split(':')[1]
+
+    if ($NewPath) {
+        # Version check for stable release train (chart_version will be in X.Y.Z format as opposed to X.Y.Z-NONSTABLE)
+        if (-not $chartVersion.Contains('-') -and ([version]$chartVersion -lt [version]"1.14.0")) {
+            $errorSummary = "This CLI version does not support upgrading to Agents versions older than v1.14"
+            # Assuming telemetry.set_exception and consts.Operation_Not_Supported_Fault_Type are handled elsewhere
+            throw "Operation not supported on older Agents: $errorSummary"
+        }
+
+        $basePath = Split-Path $chartUrl -Parent
+        $imageName = Split-Path $chartUrl -Leaf
+        $chartUrl = "$basePath/v2/$imageName"
+    }
+
+    $cmdHelmChartPull = @($HelmClientLocation, "pull", "oci://$chartUrl", "--untar", "--untardir", $ChartExportPath, "--version", $chartVersion)
+    if ($KubeConfig) {
+        $cmdHelmChartPull += "--kubeconfig", $KubeConfig
+    }
+    if ($KubeContext) {
+        $cmdHelmChartPull += "--kube-context", $KubeContext
+    }
+
+    for ($i = 0; $i -lt $RetryCount; $i++) {
+        try {
+            & $cmdHelmChartPull[0] $cmdHelmChartPull[1..($cmdHelmChartPull.Count - 1)]
+            break
+        }
+        catch {
+            if ($i -eq $RetryCount - 1) {
+                # Assuming telemetry.set_exception and consts.Pull_HelmChart_Fault_Type are handled elsewhere
+                throw "Unable to pull $ChartName helm chart from the registry '$RegistryPath': $_"
+            }
+            Start-Sleep -Seconds $RetryDelay
+        }
+    }
 }
