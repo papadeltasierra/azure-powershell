@@ -657,15 +657,17 @@ function Invoke-HealthCheckDP {
     $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
     $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
     $uriParameters = @()
-    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $resource = 'https://management.core.windows.net/'
     $headers = $null
-    if ($env:AZURE_ACCESS_TOKEN) {
-        $headers = @{"Authorization"="Bearer $($env:AZURE_ACCESS_TOKEN)"}
+    if ($env.Contains('AZURE_ACCESS_TOKEN')) {
+        $headers = @{"Authorization"="Bearer $($env['AZURE_ACCESS_TOKEN'])"}
     }
 
     # Sending request with retries
     # !!PDS: Need to define/replace the method below.
-    $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
+    # $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
+    $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
     if ($r.StatusCode -eq 200) {
         Write-Output "Health check for DP is successful."
         return $true
@@ -711,7 +713,7 @@ function Invoke-HealthCheckDP {
 
 function Invoke-RestMethodWithRetries {
     param ()
-    [string]$cli_ctx
+    # [string]$cli_ctx
     [string]$method
     [string]$url
     [string]$headers
@@ -784,17 +786,20 @@ function Get-HelmValues {
     #        But ideally not the resource ID we started with?  Did it get updated?
     # !!PDS: Or perhaps we don't care for Powershell?  Does it set authentication via
     #        other methods?
-    $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
+    $resource = 'https://management.core.windows.net/'
     $headers = $null
-    if ($env:AZURE_ACCESS_TOKEN) {
-        $headers = @{Authorization = "Bearer $($env:AZURE_ACCESS_TOKEN)"}
+    if ($env.Contains('AZURE_ACCESS_TOKEN')) {
+        $headers = @{Authorization = "Bearer $($env['AZURE_ACCESS_TOKEN'])"}
     }
 
     # Sending request with retries
     # !!PDS: Creating somethig like this.
     # $r = Send-RequestWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
-    $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
+    # $r = Invoke-RestMethodWithRetries -cli_ctx $cmd.cli_ctx -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
+    $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
     if ($r.StatusCode -ne 200) {
+        # !!PDS: But this does nothing?
         [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
     }
 
@@ -960,7 +965,7 @@ function Get-HelmValues {
 
 function Invoke-RawRequest {
     param (
-        [object]$cli_ctx,
+        # [object]$cli_ctx,
         [string]$method,
         [string]$url,
         [hashtable]$headers = @{},
@@ -1001,25 +1006,26 @@ function Invoke-RawRequest {
         $skip_authorization_header = $true
     }
 
+    # Assume that using the Get-InvokeRest method will set the user-agent
+    # accordingly so we do not need to do that here.
     # Handle User-Agent
     # !!PDS: This does not exist until we implement it!
-    $userAgents = @((Get-AzRestUserAgent))
-
-    # Borrow AZURE_HTTP_USER_AGENT from msrest
-    $envAdditionalUserAgent = 'AZURE_HTTP_USER_AGENT'
-    if ($env.ContainsKey($envAdditionalUserAgent)) {
-        $userAgents += $env[$envAdditionalUserAgent]
-    }
-
-    # Custom User-Agent provided as command argument
-    if ($headers.ContainsKey('User-Agent')) {
-        $userAgents += $headers['User-Agent']
-    }
-    $headers['User-Agent'] = $userAgents -join ' '
-
+    # $userAgents = @((Get-AzRestUserAgent))
+    # 
+    # # Borrow AZURE_HTTP_USER_AGENT from msrest
+    # $envAdditionalUserAgent = 'AZURE_HTTP_USER_AGENT'
+    # if ($env.ContainsKey($envAdditionalUserAgent)) {
+    #     $userAgents += $env[$envAdditionalUserAgent]
+    # }
+    # 
+    # # Custom User-Agent provided as command argument
+    # if ($headers.ContainsKey('User-Agent')) {
+    #     $userAgents += $headers['User-Agent']
+    # }
+    # $headers['User-Agent'] = $userAgents -join ' '
     # Set telemetry User-Agent
     # !!PDS: This does not exist until we write it!
-    Set-AzUserAgent -UserAgent $headers['User-Agent']
+    # Set-AzUserAgent -UserAgent $headers['User-Agent']
 
     if ($generatedClientRequestIdName) {
         $headers[$generatedClientRequestIdName] = [guid]::NewGuid().ToString()
@@ -1041,11 +1047,11 @@ function Invoke-RawRequest {
     }
 
     # !!PDS: Not sure how this context gets set up and how we duplicate this.
-    # Add telemetry
-    $headers['CommandName'] = $cli_ctx.data['command']
-    if ($cli_ctx.data['safe_params']) {
-        $headers['ParameterSetName'] = ($cli_ctx.data['safe_params'] -join ' ')
-    }
+    # Add telemetry - what is this for?  Logging?
+    # $headers['CommandName'] = $cli_ctx.data['command']
+    # if ($cli_ctx.data['safe_params']) {
+    #     $headers['ParameterSetName'] = ($cli_ctx.data['safe_params'] -join ' ')
+    # }
 
     $result = @{}
     foreach ($s in $uri_parameters.GetEnumerator()) {
@@ -1068,45 +1074,52 @@ function Invoke-RawRequest {
     # default to Azure Resource Manager.
     # https://management.azure.com + /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01
     if (-not $url.Contains('://')) {
-        $url = $endpoints.resource_manager.TrimEnd('/') + $url
+        # $url = $endpoints.resource_manager.TrimEnd('/') + $url
+        # !!PDS: Should this be a "new global::System.Uri()"?
+        $url = "https://management.azure.com//" + $url
     }
 
-    # Replace common tokens with real values. It is for smooth experience if users copy and paste the url from
-    # Azure Rest API doc
-    # $cliProfile = [Azure.Cli.Core.Profile]::new($cli_ctx)
-    if ($url.Contains('{subscriptionId}')) {
-        # $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { $cliProfile.GetSubscriptionId() }
-        $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { Get-AzContext.Subscription }
-        $url = $url.Replace('{subscriptionId}', $subscriptionId)
-    }
+    # !!PDS: We do not expect customers to be doing anything like this with connected clusters.
+    # # Replace common tokens with real values. It is for smooth experience if users copy and paste the url from
+    # # Azure Rest API doc
+    # # $cliProfile = [Azure.Cli.Core.Profile]::new($cli_ctx)
+    # if ($url.Contains('{subscriptionId}')) {
+    #     # $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { $cliProfile.GetSubscriptionId() }
+    #     $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { Get-AzContext.Subscription }
+    #     $url = $url.Replace('{subscriptionId}', $subscriptionId)
+    # }
 
     # Prepare the Bearer token for `Authorization` header
     if (-not $skipAuthorizationHeader -and $url.ToLower().StartsWith('https://')) {
         # Prepare `resource` for `get_raw_token`
         if (-not $resource) {
+            # !!PDS: Assume standard ARM endpoint (we already do above)
             # If url starts with ARM endpoint, like `https://management.azure.com/`,
             # use `active_directory_resource_id` for resource, like `https://management.core.windows.net/`.
             # This follows the same behavior as `azure.cli.core.commands.client_factory._get_mgmt_service_client`
-            if ($url.ToLower().StartsWith($endpoints.resource_manager.TrimEnd('/'))) {
-                $resource = $endpoints.active_directory_resource_id
-            }
-            else {
-                try {
-                    # Scan the URL for all known (at least to this tool) resource endpoints.
-                    $endpointProperties = [System.Linq.Enumerable]::Where([System.Type]::GetType("Microsoft.Azure.Commands.Profile.Models.PSAzureEnvironment").GetProperties(), { $args[0].Name -notmatch '^_' })
-                    foreach ($p in $endpointProperties) {
-                        $value = $p.GetValue($endpoints)
-                        if ($value -and $url.ToLower().StartsWith($value.ToLower())) {
-                            # This is a resource for an endpoint that we recognise so we can accept it.
-                            $resource = $value
-                            break
-                        }
-                    }
-                }
-                catch {
-                    Write-Warning "Could not set the resource based on URL and endpoints."
-                }
-            }
+            # if ($url.ToLower().StartsWith($endpoints.resource_manager.TrimEnd('/'))) {
+                # !!PDS: But what is this?  Only if we have no resource ID, which I assume
+                #        we do as we should have the resource group?  Maybe not if just named?
+                # $resource = $endpoints.active_directory_resource_id
+                $resource = 'https://management.core.windows.net/'
+            # }
+            # else {
+            #     try {
+            #         # Scan the URL for all known (at least to this tool) resource endpoints.
+            #         $endpointProperties = [System.Linq.Enumerable]::Where([System.Type]::GetType("Microsoft.Azure.Commands.Profile.Models.PSAzureEnvironment").GetProperties(), { $args[0].Name -notmatch '^_' })
+            #         foreach ($p in $endpointProperties) {
+            #             $value = $p.GetValue($endpoints)
+            #             if ($value -and $url.ToLower().StartsWith($value.ToLower())) {
+            #                 # This is a resource for an endpoint that we recognise so we can accept it.
+            #                 $resource = $value
+            #                 break
+            #             }
+            #         }
+            #     }
+            #     catch {
+            #         Write-Warning "Could not set the resource based on URL and endpoints."
+            #     }
+            # }
         }
         if ($resource) {
             # Prepare `subscription` for `get_raw_token`
@@ -1131,28 +1144,29 @@ function Invoke-RawRequest {
         }
     }
 
-    # Create a new PowerShell session to send the HTTP request
-    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+    # !!PDS: no need to create a session as Invoke-RestMethod does this for us.
+    # # Create a new PowerShell session to send the HTTP request
+    # $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
     # Prepare the request
     $uri = $url + '?' + ($uri_parameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '&'
     $method = $method.ToUpper()
 
-    # Configure session options
-    if (-not $shouldDisableConnectionVerify) {
-        $session.Certificates = [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
-    }
+    # # Configure session options
+    # if (-not $shouldDisableConnectionVerify) {
+    #     $session.Certificates = [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
+    # }
 
     # !!PDS: Look for Write-Log... and similar
     # Log the request (assuming _LogRequest is a function you've defined to log requests)
-    _LogRequest $method, $uri, $headers, $body
+    # _LogRequest $method, $uri, $headers, $body
 
     # Send the request
     $response = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -Body $body -WebSession $session -ContentType "application/json"
 
     # Log the response (assuming _LogResponse is a function you've defined to log responses)
     # !!PDS: Look for Write-Log... and similar
-    _LogResponse $response
+    # _LogResponse $response
 
     # Check for successful response
     if ($response.StatusCode -ne 200) {
