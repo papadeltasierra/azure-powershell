@@ -54,7 +54,7 @@ commit: ac6324d13863e8157f4b392ef0ceef1e86eea935
 require:
   - $(this-folder)/../../../tools/SwaggerCI/readme.azure.noprofile.md
 input-file:
-  - $(repo)/specification/hybridkubernetes/resource-manager/Microsoft.Kubernetes/preview/2022-10-01-preview/connectedClusters.json
+  - $(repo)/specification/hybridkubernetes/resource-manager/Microsoft.Kubernetes/preview/2024-07-01-preview/connectedClusters.json
 
 title: ConnectedKubernetes
 module-version: 0.1.0
