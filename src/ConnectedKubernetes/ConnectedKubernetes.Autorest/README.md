@@ -37,8 +37,12 @@ Use of the beta version of `autorest.powershell` generator requires the followin
 
 ## Run Generation
 In this directory, run AutoRest:
-> `autorest`
-
+```
+...\ConnectedKubernetes.Autorest> autorest
+```
+> Note that `autorest` will read the configuration from this README.md file!
+>
+> If `autorest` fails, it sometimes deletes files and fails to recreate them before it fails.  You may neeed to use `git` to recover these files before fixing the errors and running `autorest` again.
 ---
 ### AutoRest Configuration
 > see https://aka.ms/autorest
@@ -48,7 +52,7 @@ In this directory, run AutoRest:
 ``` yaml
 commit: ac6324d13863e8157f4b392ef0ceef1e86eea935
 require:
-  - $(this-folder)/../../readme.azure.noprofile.md
+  - $(this-folder)/../../../tools/SwaggerCI/readme.azure.noprofile.md
 input-file:
   - $(repo)/specification/hybridkubernetes/resource-manager/Microsoft.Kubernetes/preview/2022-10-01-preview/connectedClusters.json
 
