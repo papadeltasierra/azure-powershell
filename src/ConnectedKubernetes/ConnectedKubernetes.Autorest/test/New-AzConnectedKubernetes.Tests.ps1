@@ -19,3 +19,21 @@ Describe 'New-AzConnectedKubernetes' {
         { throw [System.NotImplementedException] } | Should -Not -Throw
     }
 }
+
+
+Describe 'Get-SubscriptionIdFromResourceId' {
+    It 'Finds the subscription id from a resource id' {
+        InModuleScope Az.ConnectedKubernetes.custom {
+            $resourceId = '/subscriptions/12345678-9ABC-DEF0-1234-56789ABCDEF0/resourceGroups/rg/providers/Microsoft.Kubernetes/connectedClusters/cluster'
+            $subscriptionId = Get-SubscriptionIdFromResourceId -ResourceId $resourceId
+            $subscriptionId | Should -Be '12345678-9ABC-DEF0-1234-56789ABCDEF0'
+        }
+    }
+    It 'Finds no subscription id in a resource id' {
+        InModuleScope Az.ConnectedKubernetes.custom {
+            $resourceId = '/not-a-subscription/12345678-9ABC-DEF0-1234-56789ABCDEF0/resourceGroups/rg/providers/Microsoft.Kubernetes/connectedClusters/cluster'
+            $subscriptionId = Get-SubscriptionIdFromResourceId -ResourceId $resourceId
+            $subscriptionId | Should -Be $null
+        }
+    }
+}
