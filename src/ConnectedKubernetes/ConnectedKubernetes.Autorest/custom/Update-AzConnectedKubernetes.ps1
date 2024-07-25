@@ -27,7 +27,7 @@ Get-AzConnectedKubernetes -ClusterName azps_test_cluster -ResourceGroupName azps
 .Inputs
 Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.IConnectedKubernetesIdentity
 .Outputs
-Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20221001Preview.IConnectedCluster
+Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.IConnectedCluster
 .Notes
 COMPLEX PARAMETER PROPERTIES
 
@@ -42,12 +42,12 @@ INPUTOBJECT <IConnectedKubernetesIdentity>: Identity Parameter
 https://learn.microsoft.com/powershell/module/az.connectedkubernetes/update-azconnectedkubernetes
 #>
 function Update-AzConnectedKubernetes {
-    [OutputType([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20221001Preview.IConnectedCluster])]
+    [OutputType([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.IConnectedCluster])]
     [CmdletBinding(DefaultParameterSetName='UpdateExpanded', PositionalBinding=$false, SupportsShouldProcess, ConfirmImpact='Medium')]
     param(
-        // !!PDS: Need to add the new parameters here.  
-        // !!PDS: Need to extend the helm code to pass along.
-        // !!PDS: Need to switch from REST PATCH to REST PUT and maybe rename to Set-...
+        # // !!PDS: Need to add the new parameters here.  
+        # // !!PDS: Need to extend the helm code to pass along.
+        # // !!PDS: Need to switch from REST PATCH to REST PUT and maybe rename to Set-...
 
         [Parameter(ParameterSetName='UpdateExpanded', Mandatory)]
         [Alias('Name')]
@@ -103,7 +103,7 @@ function Update-AzConnectedKubernetes {
 
         [Parameter()]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Body')]
-        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Runtime.Info(PossibleTypes=([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20221001Preview.IConnectedClusterPatchTags]))]
+        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Runtime.Info(PossibleTypes=([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.IConnectedClusterPatchTags]))]
         [System.Collections.Hashtable]
         # Resource tags.
         ${Tag},
@@ -153,14 +153,14 @@ function Update-AzConnectedKubernetes {
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.Management.Automation.SwitchParameter]
         # Use the default credentials for the proxy
-        ${ProxyUseDefaultCredentials}
+        ${ProxyUseDefaultCredentials},
 
         [Parameter()]
         [ValidateSet("gateway", "direct")]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.String]
         # Azure connections are either direct or via an Arc Gateway
-        ${ConnectionType}
+        ${ConnectionType},
 
         [Parameter()]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
