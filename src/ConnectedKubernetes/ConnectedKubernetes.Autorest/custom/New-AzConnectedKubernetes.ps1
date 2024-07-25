@@ -284,7 +284,7 @@ function New-AzConnectedKubernetes {
         $null = $PSBoundParameters.Remove('AcceptEULA')
 
 
-        if ($PSBoundParameters.ContainsKey('KubeConfig')) {
+        if ($PSBoundParameters:KubeConfig) {
             $Null = $PSBoundParameters.Remove('KubeConfig')
         } elseif (Test-Path Env:KUBECONFIG) {
             $KubeConfig = Get-ChildItem -Path Env:KUBECONFIG
@@ -297,16 +297,16 @@ function New-AzConnectedKubernetes {
             Write-Error 'Cannot find the kube-config. Please make sure that you have the kube-config on your machine.'
             return
         }
-        if ($PSBoundParameters.ContainsKey('KubeContext')) {
+        if ($PSBoundParameters:KubeContext) {
             $Null = $PSBoundParameters.Remove('KubeContext')
         }
         if (($null -eq $KubeContext) -or ($KubeContext -eq '')) {
             $KubeContext = kubectl config current-context
         }
 
-        if ($PSBoundParameters.ContainsKey('ConnectionType')) {
+        if ($PSBoundParameters:ConnectionType) {
             if ($ConnectionType.Equals("direct")) {
-                if ($PSBoundParameters.ContainsKey('GatewayResourceId')) {
+                if ($PSBoundParameters:GatewayResourceId) {
                     Write-Error 'GatewayResourceId should not be provided when ConnectionType is "direct".'
                     return
                 }
@@ -314,6 +314,7 @@ function New-AzConnectedKubernetes {
         }
 
         $CommonPSBoundParameters = @{}
+        # !!PDS: More of these to replace with ":..."
         if ($PSBoundParameters.ContainsKey('HttpPipelineAppend')) {
             $CommonPSBoundParameters['HttpPipelineAppend'] = $HttpPipelineAppend
         }
@@ -682,7 +683,8 @@ function Invoke-HealthCheckDP {
     # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
     $resource = 'https://management.core.windows.net/'
     $headers = $null
-    if ($env.Contains('AZURE_ACCESS_TOKEN')) {
+    # Check if key AZURE_ACCESS_TOKEN exists in environment variables
+    if ($env:AZURE_ACCESS_TOKEN) {
         $headers = @{"Authorization"="Bearer $($env['AZURE_ACCESS_TOKEN'])"}
     }
 
@@ -724,6 +726,7 @@ function Invoke-HealthCheckDP {
 #                                 summary='No content in acr path response')
 #         raise CLIInternalError("No content was found in helm registry path response.")
 
+# !!PDS: We probably do not require this, or at least the tries portion, since Invoke-RestMethod already supports retries.
 function Invoke-RestMethodWithRetries {
     param ()
     # [string]$cli_ctx
@@ -813,7 +816,7 @@ function Invoke-RawRequest {
     }
 
     # If Authorization header is already provided, don't bother with the token
-    if ($result.ContainsKey('Authorization')) {
+    if ($result:Authorization) {
         $skip_authorization_header = $true
     }
 
@@ -1044,10 +1047,33 @@ function Get-ConfigDPEndpoint {
     # Get the default config dataplane endpoint.
     if (-not $ConfigDpEndpoint) {
         # !!PDS: Need to write this.
-        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Cmd $Cmd -Location $Location
+        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Location $Location
     }
 
     return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain }
+}
+
+# def get_default_config_dp_endpoint(cmd, location):
+#     cloud_based_domain = cmd.cli_ctx.cloud.endpoints.active_directory.split(".")[2]
+#     config_dp_endpoint = "https://{}.dp.kubernetesconfiguration.azure.{}".format(
+#         location, cloud_based_domain
+#     )
+#     return config_dp_endpoint
+
+function Get-DefaultConfigDpEndpoint {
+    param (
+        #[Parameter(Mandatory=$true)]
+        #[object]$cmd,
+        
+        [Parameter(Mandatory=$true)]
+        [string]$location
+    )
+
+    # !!PDS: Looks like we really do need to know this somehow.  Probably different for Fairfax and Mooncake.
+    # $cloudBasedDomain = ($cmd.cli_ctx.cloud.endpoints.active_directory -split "\.")[2]
+    $cloudBasedDomain = 'com'
+    $configDpEndpoint = "https://$location.dp.kubernetesconfiguration.azure.$cloudBasedDomain"
+    return $configDpEndpoint
 }
 
 Function Get-Metadata {
