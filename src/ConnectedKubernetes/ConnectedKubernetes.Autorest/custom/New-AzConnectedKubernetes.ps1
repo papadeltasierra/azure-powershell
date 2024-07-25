@@ -355,7 +355,8 @@ function New-AzConnectedKubernetes {
         $ReleaseInstallNamespace = Get-ReleaseInstallNamespace
         $ReleaseNamespace = $null
         try {
-            $ReleaseNamespace = (helm status azure-arc -o json --kubeconfig $KubeConfig --kube-context $KubeContext -n $ReleaseInstallNamespace | ConvertFrom-Json).namespace
+            # !!PDS: Seems like this showing "Error: Release: Not found" is not an error but a warning that implies there just is not a release.  Can we quench this?
+            $ReleaseNamespace = (helm status azure-arc -o json --kubeconfig $KubeConfig --kube-context $KubeContext -n $ReleaseInstallNamespace 2> $null | ConvertFrom-Json).namespace
         } catch {
             Write-Error "Fail to find the namespace for azure-arc."
         }
@@ -572,8 +573,11 @@ function New-AzConnectedKubernetes {
         # Perform DP health check
 
         $valuesFile = Get-ValuesFile
-        $armMetadata = Get-Metadata -ArmEndpoint 'https://azure.com'
-        $configDpinfo = Get-ConfigDPEndpoint -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
+        # !!PDS: Remove magic string for the ARM endpoint, perhaps into a consts or similar?
+        $armMetadata = Get-Metadata -ArmEndpoint 'https://management.azure.com'
+        # !!PDS: Values fileonly used for dogfood?
+        # $configDpinfo = Get-ConfigDPEndpoint -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
+        $configDpinfo = Get-ConfigDPEndpoint -location $Location -armMetadata $armMetadata
         $configDPEndpoint = $configDpInfo.configDPEndpoint
 
         Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint
@@ -684,13 +688,6 @@ function Invoke-HealthCheckDP {
 
     # Sending request with retries
     $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
-    if ($r.StatusCode -eq 200) {
-        Write-Output "Health check for DP is successful."
-        return $true
-    }
-    else {
-        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
-    }
     if ($r.StatusCode -eq 200) {
         Write-Output "Health check for DP is successful."
         return $true
@@ -840,10 +837,10 @@ function Invoke-RawRequest {
     # Set telemetry User-Agent
     # !!PDS: This does not exist until we write it!
     # Set-AzUserAgent -UserAgent $headers['User-Agent']
-
-    if ($generatedClientRequestIdName) {
-        $headers[$generatedClientRequestIdName] = [guid]::NewGuid().ToString()
-    }
+    # 
+    # if ($generatedClientRequestIdName) {
+    #     $headers[$generatedClientRequestIdName] = [guid]::NewGuid().ToString()
+    # }
 
     # Try to figure out the correct content type
     if ($body) {
@@ -984,11 +981,6 @@ function Invoke-RawRequest {
         throw "HTTPError: $reason"
     }
 
-    # If an output file is specified, save the response content to the file
-    if ($outputFile) {
-        $response.Content | Out-File -FilePath $outputFile -Encoding Byte
-    }
-
     # Return the response
     return $response
 }
@@ -1014,7 +1006,7 @@ function Get-SubscriptionIdFromResourceId {
     return $resIdParts[$subscriptionIndex + 1]
 }
 
-function Get-ConfigDpEndpoint {
+function Get-ConfigDPEndpoint {
     param (
         # [Parameter(Mandatory=$true)]
         # $Cmd,
@@ -1028,7 +1020,8 @@ function Get-ConfigDpEndpoint {
 
     if (-not $ArmMetadata) {
         # !!PDS: Need to write this.
-        $ArmMetadata = Get-Metadata -CloudEndpoint $Cmd.cli_ctx.cloud.endpoints.resource_manager
+        # $ArmMetadata = Get-Metadata -CloudEndpoint $Cmd.cli_ctx.cloud.endpoints.resource_manager
+        $ArmMetadata = Get-Metadata -CloudEndpoint 'https://management.azure.com'
     }
 
     # !!PDS: No dogfood!
@@ -1051,7 +1044,7 @@ function Get-ConfigDpEndpoint {
     # Get the default config dataplane endpoint.
     if (-not $ConfigDpEndpoint) {
         # !!PDS: Need to write this.
-        $ConfigDpEndpoint = Get-DefaultConfigDpEndpoint -Cmd $Cmd -Location $Location
+        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Cmd $Cmd -Location $Location
     }
 
     return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain }
@@ -1068,13 +1061,15 @@ Function Get-Metadata {
 
     try {
         $MetadataEndpoint = $ArmEndpoint + $MetadataUrlSuffix
-        $Response = Invoke-RestMethod -Uri $MetadataEndpoint -Method Get
 
-        if ($Response.StatusCode -eq 200) {
+        # !!PDS: We do not need restmethod with retries because this method has that option!
+        $Response = Invoke-RestMethod -Uri $MetadataEndpoint -Method Get -StatusCodeVariable StatusCode
+
+        if ($StatusCode -eq 200) {
             return $Response
         }
         else {
-            $Msg = "ARM metadata endpoint '$MetadataEndpoint' returned status code $($Response.StatusCode)."
+            $Msg = "ARM metadata endpoint '$MetadataEndpoint' returned status code $($StatusCode)."
             throw $Msg
         }
     }
