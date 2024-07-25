@@ -29,9 +29,22 @@ Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview
 .Link
 https://learn.microsoft.com/powershell/module/az.connectedkubernetes/new-azconnectedkubernetes
 #>
+
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+    Justification='Helm values is a recognised term', Scope='Function', Target='Get-HelmValues')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+    Justification='MetaData is a recognised term', Scope='Function', Target='Get-MetaData')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+    Justification='Willl retry multiple times', Scope='Function', Target='Invoke-RestMethodWithRetries')]
+[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+    Justification='Kubernetes is a recognised term', Scope='Function', Target='New-AzConnectedKubernetes')]
+param()
+
 function New-AzConnectedKubernetes {
     [OutputType([Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.IConnectedCluster])]
     [CmdletBinding(DefaultParameterSetName='CreateExpanded', PositionalBinding=$false, SupportsShouldProcess, ConfirmImpact='Medium')]
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingConvertToSecureStringWithPlainText', '',
+        Justification='Code published before this issue was identified')]
     param(
         [Parameter(Mandatory)]
         [Alias('Name')]
@@ -299,7 +312,7 @@ function New-AzConnectedKubernetes {
                 }
             }
         }
-        
+
         $CommonPSBoundParameters = @{}
         if ($PSBoundParameters.ContainsKey('HttpPipelineAppend')) {
             $CommonPSBoundParameters['HttpPipelineAppend'] = $HttpPipelineAppend
@@ -334,7 +347,7 @@ function New-AzConnectedKubernetes {
                 Return
             }
         } catch {
-            throw "Helm version 3+ is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"            
+            throw "Helm version 3+ is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
         }
         #EndRegion
 
@@ -355,7 +368,7 @@ function New-AzConnectedKubernetes {
             $ConfigmapClusterName = $Configmap.data.AZURE_RESOURCE_NAME
             try {
                 $ExistConnectedKubernetes = Get-AzConnectedKubernetes -ResourceGroupName $ConfigmapRgName -ClusterName $ConfigmapClusterName @CommonPSBoundParameters
-        
+
                 if (($ResourceGroupName -eq $ConfigmapRgName) -and ($ClusterName -eq $ConfigmapClusterName)) {
                     # !!PDS: Looks like this performs a re-PUT of an existing connected cluster.
                     $PSBoundParameters.Add('AgentPublicKeyCertificate', $ExistConnectedKubernetes.AgentPublicKeyCertificate)
@@ -377,7 +390,7 @@ function New-AzConnectedKubernetes {
             $HelmRepoUrl = Get-ChildItem -Path Env:HELMREPOURL
             helm repo add $HelmRepoName $HelmRepoUrl --kubeconfig $KubeConfig --kube-context $KubeContext
         }
-        
+
         $resources = Get-Module Az.Resources -ListAvailable
         if ($null -eq $resources) {
             Write-Error "Missing required module(s): Az.Resources. Please run 'Install-Module Az.Resources -Repository PSGallery' to install Az.Resources."
@@ -399,9 +412,9 @@ function New-AzConnectedKubernetes {
                 return
             } else {
                 $Location = $Region
-            }            
+            }
             $ChartLocationUrl = "https://${Location}.dp.kubernetesconfiguration.azure.com/azure-arc-k8sagents/GetLatestHelmPackagePath?api-version=2019-11-01-preview&releaseTrain=${ReleaseTrain}"
-        
+
             $Uri = [System.Uri]::New($ChartLocationUrl)
             $Account = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Account
             $Env = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureEnvironment]::PublicEnvironments[[Microsoft.Azure.Commands.Common.Authentication.Abstractions.EnvironmentName]::AzureCloud]
@@ -409,7 +422,7 @@ function New-AzConnectedKubernetes {
             $PromptBehavior = [Microsoft.Azure.Commands.Common.Authentication.ShowDialog]::Never
             $Token = [Microsoft.Azure.Commands.Common.Authentication.AzureSession]::Instance.AuthenticationFactory.Authenticate($account, $env, $tenantId, $null, $promptBehavior, $null)
             $AccessToken = $Token.AccessToken
-        
+
             $HeaderParameter = @{
                 "Authorization" = "Bearer $AccessToken"
             }
@@ -429,7 +442,7 @@ function New-AzConnectedKubernetes {
         try {
             helm chart pull $RegisteryPath --kubeconfig $KubeConfig --kube-context $KubeContext
         } catch {
-            throw "Unable to pull helm chart from the registery $RegisteryPath"            
+            throw "Unable to pull helm chart from the registery $RegisteryPath"
         }
         #Endregion
 
@@ -454,7 +467,7 @@ function New-AzConnectedKubernetes {
                 . "$PSScriptRoot/helpers/RSAHelper.ps1"
                 $AgentPublicKey = ExportRSAPublicKeyBase64($RSA)
                 $AgentPrivateKey = ExportRSAPrivateKeyBase64($RSA)
-                $AgentPrivateKey = "-----BEGIN RSA PRIVATE KEY-----`n" + $AgentPrivateKey + "`n-----END RSA PRIVATE KEY-----"                
+                $AgentPrivateKey = "-----BEGIN RSA PRIVATE KEY-----`n" + $AgentPrivateKey + "`n-----END RSA PRIVATE KEY-----"
             } catch {
                 throw "Unable to generate RSA keys"
             }
@@ -512,7 +525,7 @@ function New-AzConnectedKubernetes {
                 $options += " --set global.isCustomCert=true"
             }
         } catch {
-            throw "Unable to find ProxyCert from file path"            
+            throw "Unable to find ProxyCert from file path"
         }
         if ($DisableAutoUpgrade) {
             $options += " --set systemDefaultValues.azureArcAgents.autoUpdate=false"
@@ -535,7 +548,7 @@ function New-AzConnectedKubernetes {
         if (!$NoWait) {
             $options += " --wait --timeout $OnboardingTimeout"
             $options += "s"
-        }        
+        }
         #Endregion
         if ($PSBoundParameters.ContainsKey('OnboardingTimeout')) {
             $PSBoundParameters.Remove('OnboardingTimeout')
@@ -548,7 +561,7 @@ function New-AzConnectedKubernetes {
                     $ProxyCredential = New-Object System.Management.Automation.PSCredential ($userInfo[0] , $pass)
                     $PSBoundParameters.Add('ProxyCredential', $ProxyCredential)
                 } catch {
-                    throw "Please set ProxyCredential or provide username and password in the Proxy parameter"                    
+                    throw "Please set ProxyCredential or provide username and password in the Proxy parameter"
                 }
             } else {
                 Write-Warning "If the proxy is a private proxy, pass ProxyCredential parameter or provide username and password in the Proxy parameter"
@@ -582,7 +595,7 @@ function New-AzConnectedKubernetes {
 
         $helmContentValues = $helmValuesDp["helmValuesContent"]
 
-        # !!PDS: Is there any telemetry in Powershell cmdlets?  
+        # !!PDS: Is there any telemetry in Powershell cmdlets?
         # # Get azure-arc agent version for telemetry
         # azure_arc_agent_version = registry_path.split(":")[1]
         # telemetry.add_extension_event(
@@ -596,11 +609,11 @@ function New-AzConnectedKubernetes {
         # Substitute any protected helm values as the value for that will be null
         foreach ($item in $protectedHelmValues.GetEnumerator()) {
             $helmContentValues[$item.Key] = $item.Value
-        }            
+        }
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         # !!PDS: I think we might have done above, but why are we setting many options?
-        $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id        
+        $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id
         try {
             helm upgrade `
             --install azure-arc `
@@ -654,7 +667,6 @@ function New-AzConnectedKubernetes {
 
 function Invoke-HealthCheckDP {
     param (
-        [object]$cmd,
         [string]$configDPEndpoint
     )
 
@@ -734,8 +746,8 @@ function Invoke-RestMethodWithRetries {
 
     # !!PDS: Are we going to have to reproduce the resource extraction logic and the CLI context?
     # !!PDS: We do somehow need to get an Azure token so need a resource ID from somewhere.
-    # !!PDS: We are using this to access the Cluster Config DP so does that even have a 
-    #        resource and does it require an Azure token?  Or do we base this on the 
+    # !!PDS: We are using this to access the Cluster Config DP so does that even have a
+    #        resource and does it require an Azure token?  Or do we base this on the
     #        Arc connected cluster that we have created/are creating?
 
     # Add URI parameters to end of URL if there are any.
@@ -770,7 +782,6 @@ function Invoke-RestMethodWithRetries {
 
 function Get-HelmValues {
     param (
-        [object]$cmd,
         [string]$configDPEndpoint,
         [string]$releaseTrainCustom,
         [object]$requestBody
@@ -800,7 +811,7 @@ function Get-HelmValues {
     # Sending request with retries
     $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
     if ($r.StatusCode -ne 200) {
-        # !!PDS: But this does nothing?  
+        # !!PDS: But this does nothing?
         [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
     }
 
@@ -810,12 +821,14 @@ function Get-HelmValues {
         }
         catch {
             $exception = $_
-            Set-TelemetryException -exception $exception -faultType $consts.Get_HelmRegistery_Path_Fault        
+            Set-TelemetryException -exception $exception -faultType $consts.Get_HelmRegistery_Path_Fault
         }
     }
 }
 
 function Invoke-RawRequest {
+    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingEmptyCatchBlock', '',
+         Justification='Happy to accept any other body')]
     param (
         # [object]$cli_ctx,
         [string]$method,
@@ -824,9 +837,7 @@ function Invoke-RawRequest {
         [hashtable]$uri_parameters = @{},
         [string]$body,
         [bool]$skip_authorization_header = $false,
-        [string]$resource,
-        [string]$output_file,
-        [string]$generated_client_request_id_name = 'x-ms-client-request-id'
+        [string]$resource
     )
 
     # Import required modules
@@ -863,13 +874,13 @@ function Invoke-RawRequest {
     # Handle User-Agent
     # !!PDS: This does not exist until we implement it!
     # $userAgents = @((Get-AzRestUserAgent))
-    # 
+    #
     # # Borrow AZURE_HTTP_USER_AGENT from msrest
     # $envAdditionalUserAgent = 'AZURE_HTTP_USER_AGENT'
     # if ($env.ContainsKey($envAdditionalUserAgent)) {
     #     $userAgents += $env[$envAdditionalUserAgent]
     # }
-    # 
+    #
     # # Custom User-Agent provided as command argument
     # if ($headers.ContainsKey('User-Agent')) {
     #     $userAgents += $headers['User-Agent']
@@ -1057,8 +1068,6 @@ function Get-ConfigDpEndpoint {
         # $Cmd,
         [Parameter(Mandatory=$true)]
         $Location,
-        [Parameter(Mandatory=$true)]
-        $ValuesFile,
         $ArmMetadata
     )
 
@@ -1094,7 +1103,7 @@ function Get-ConfigDpEndpoint {
     }
 
     return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain }
-}    
+}
 
 Function Get-Metadata {
     param (
@@ -1183,7 +1192,7 @@ function Get-HelmValues {
         Write-Error $errorMessage
         throw $errorMessage
     }
-}        
+}
 
 function Get-ChartPath {
     param (
