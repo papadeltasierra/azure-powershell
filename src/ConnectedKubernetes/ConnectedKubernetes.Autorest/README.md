@@ -45,9 +45,9 @@ In this directory, run AutoRest:
 > If `autorest` fails, it sometimes deletes files and fails to recreate them before it fails.  You may neeed to use `git` to recover these files before fixing the errors and running `autorest` again.
 ---
 ### AutoRest Configuration
-> see https://aka.ms/autorest
+Ref: https://aka.ms/autorest
 
-!!PDS: Confirm that some of the settings below have to change and that we want to create Set... and not Update... now.
+> As of 2024/07/25, we have observed that `autorest` creates a Az.`ConnectedKubernetes.format.ps1xml` in the _wrong_ directory and this means that `test-module.ps1` fails.  We have yet to receive any information from the Azure-Powershell team as to why this is so for now we work around it by copying this file from `...artifacts\Debug\Az.ConnectedKubernetes\ConnectedKubernetes.Autorest\Az.ConnectedKubernetes.format.ps1xml` to `...\src\ConnectedKubernetes\ConnectedKubernetes.Autorest`.
 
 ``` yaml
 commit: ac6324d13863e8157f4b392ef0ceef1e86eea935
