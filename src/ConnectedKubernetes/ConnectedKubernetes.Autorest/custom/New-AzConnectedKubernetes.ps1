@@ -779,53 +779,6 @@ function Invoke-RestMethodWithRetries {
     return $response
 }
 
-
-function Get-HelmValues {
-    param (
-        [string]$configDPEndpoint,
-        [string]$releaseTrainCustom,
-        [object]$requestBody
-    )
-
-    # Setting uri
-    $apiVersion = "2024-07-01-preview"
-    $chartLocationUrlSegment = "azure-arc-k8sagents/GetHelmSettings?api-version=$apiVersion"
-    $releaseTrain = if ($env:RELEASETRAIN) { $env:RELEASETRAIN } else { "stable" }
-    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
-    if ($releaseTrainCustom) {
-        $releaseTrain = $releaseTrainCustom
-    }
-    $uriParameters = @("releaseTrain=$releaseTrain")
-
-    # !!PDS: not clear how we reproduce this.  I guess this is a resource from somewhere?
-    #        But ideally not the resource ID we started with?  Did it get updated?
-    # !!PDS: Or perhaps we don't care for Powershell?  Does it set authentication via
-    #        other methods?
-    # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
-    $resource = 'https://management.core.windows.net/'
-    $headers = $null
-    if ($env.Contains('AZURE_ACCESS_TOKEN')) {
-        $headers = @{Authorization = "Bearer $($env['AZURE_ACCESS_TOKEN'])"}
-    }
-
-    # Sending request with retries
-    $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while fetching helm chart registry path' -uriParameters $uriParameters -resource $resource -requestBody $requestBody
-    if ($r.StatusCode -ne 200) {
-        # !!PDS: But this does nothing?
-        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
-    }
-
-    if ($r.content) {
-        try {
-            return $r.json()
-        }
-        catch {
-            $exception = $_
-            Set-TelemetryException -exception $exception -faultType $consts.Get_HelmRegistery_Path_Fault
-        }
-    }
-}
-
 function Invoke-RawRequest {
     param (
         # [object]$cli_ctx,
