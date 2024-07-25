@@ -1031,16 +1031,16 @@ function Invoke-RawRequest {
 }
 
 function Get-SubscriptionIdFromResourceId {
-    params (
-        [parameter(required=$true)]
-        [string]$url
+    param (
+        [parameter(mandatory=$true)]
+        [string]$resourceId
     )
 
     # Split the URL based on "/"
-    $urlParts = $url -split '/'
+    $resIdParts = $resourceId -split '/'
 
     # Find the index of "subscriptions" in $urlParts
-    $subscriptionIndex = $urlParts.IndexOf('subscriptions')
+    $subscriptionIndex = $resIdParts.IndexOf('subscriptions')
 
     # If "subscriptions" is not found, return $null
     if ($subscriptionIndex -eq -1) {
@@ -1048,7 +1048,7 @@ function Get-SubscriptionIdFromResourceId {
     }
 
     # Return the value after "subscriptions"
-    return $urlParts[$subscriptionIndex + 1]
+    return $resIdParts[$subscriptionIndex + 1]
 }
 
 function Get-ConfigDpEndpoint {
