@@ -827,8 +827,6 @@ function Get-HelmValues {
 }
 
 function Invoke-RawRequest {
-    [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingEmptyCatchBlock', '',
-         Justification='Happy to accept any other body')]
     param (
         # [object]$cli_ctx,
         [string]$method,
@@ -905,7 +903,8 @@ function Invoke-RawRequest {
             }
         }
         catch {
-            # If conversion fails, just pass and use the body as is
+            Write-Error "The body is not valid JSON."
+            return
         }
     }
 
