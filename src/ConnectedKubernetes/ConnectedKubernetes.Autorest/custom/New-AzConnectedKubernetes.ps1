@@ -35,7 +35,7 @@ https://learn.microsoft.com/powershell/module/az.connectedkubernetes/new-azconne
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='MetaData is a recognised term', Scope='Function', Target='Get-MetaData')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-    Justification='Willl retry multiple times', Scope='Function', Target='Invoke-RestMethodWithRetries')]
+    Justification='Willl retry multiple times', Scope='Function', Target='Invoke-RestMethodWithUriParameters')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='Kubernetes is a recognised term', Scope='Function', Target='New-AzConnectedKubernetes')]
 param()
@@ -351,6 +351,7 @@ function New-AzConnectedKubernetes {
             throw "Helm version 3+ is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
         }
         #EndRegion
+        $helmClientLocation = 'helm'
 
         #Region get release namespace
         $ReleaseInstallNamespace = Get-ReleaseInstallNamespace
@@ -573,7 +574,8 @@ function New-AzConnectedKubernetes {
         # !!PDS: Check the health of the config DP before we proceed.
         # Perform DP health check
 
-        $valuesFile = Get-ValuesFile
+        # !!PDS: This only appears to be used for Dogfood.
+        # $valuesFile = Get-ValuesFile
         # !!PDS: Remove magic string for the ARM endpoint, perhaps into a consts or similar?
         $armMetadata = Get-Metadata -ArmEndpoint 'https://management.azure.com'
         # !!PDS: Values fileonly used for dogfood?
@@ -592,7 +594,7 @@ function New-AzConnectedKubernetes {
 
 
         # Retrieving Helm chart OCI (Open Container Initiative) Artifact location
-        $helmValuesDp = Get-HelmValues -cmd $cmd -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
+        $helmValuesDp = Get-HelmValues -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
 
         # Allow a custom OCI registry to be set via environment variables.
         # !!PDS: Where are these variables documented?  Should they be?
@@ -679,24 +681,60 @@ function Invoke-HealthCheckDP {
     $apiVersion = "2024-07-01-preview"
     $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
     $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
-    $uriParameters = @()
+    $uriParameters = @{}
     # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
     $resource = 'https://management.core.windows.net/'
-    $headers = $null
+    $headers = @{}
     # Check if key AZURE_ACCESS_TOKEN exists in environment variables
     if ($env:AZURE_ACCESS_TOKEN) {
         $headers = @{"Authorization"="Bearer $($env['AZURE_ACCESS_TOKEN'])"}
     }
 
     # Sending request with retries
-    $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
-    if ($r.StatusCode -eq 200) {
+    # $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
+    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $resource -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
+    if ($statusCode -eq 200) {
         Write-Output "Health check for DP is successful."
         return $true
     }
     else {
-        [Microsoft.Azure.Commands.Common.Exceptions.CLIInternalError]::new("Error while performing DP health check")
+        throw "Error while performing DP health check, StatusCode: ${statusCode}"
     }
+}
+
+# !!PDS: We probably do not require this, or at least the tries portion, since Invoke-RestMethod already supports retries.
+function Invoke-RestMethodWithUriParameters {
+    param (
+        [String]$method,
+        [String]$uri,
+        [Hashtable]$headers,
+        [Hashtable]$uriParameters,
+        [String]$resource,
+        [String]$requestBody,
+        [Int]$maximumRetryCount,
+        [Int]$retryIntervalSec,
+        [String]$statusCodeVariable
+    )
+
+    # Add URI parameters to end of URL if there are any.
+    $uriParametersArray = @()
+    foreach ($Key in $hash.Keys) {
+        $uriParametersArray.Add("$($Key)=$($UriParameters[$Key])")
+        $uriParametersString = $uriParametersArray -join '&'
+        $uri = "$url?$uriParametersString"
+    }
+
+    # if ($uriParameters.count -gt 0) {
+    #     # Create an array by joining hash index and value using '=' and join them using '&'
+    #     $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
+    # }
+    Write-Debug "Issue REST request to ${uri} with method ${method} and headers ${headers} and body ${requestBody}"
+    $rsp = Invoke-RestMethod -Method $method -Uri $uri -Headers $headers -Body $requestBody -ContentType "application/json"  -MaximumRetryCount $maximumRetryCount -RetryIntervalSec $retryintervalSec -StatusCodeVariable statusCode
+    Set-Variable -Name "${statusCodeVariable}" -Value $statusCode -Scope script
+    if ($statusCode -ne 200) {
+        throw "health check failed, StatusCode: ${statusCode}."
+    }
+    return $rsp
 }
 
 # def get_helm_values(cmd, config_dp_endpoint, release_train_custom=None, request_body=None):
@@ -727,57 +765,57 @@ function Invoke-HealthCheckDP {
 #         raise CLIInternalError("No content was found in helm registry path response.")
 
 # !!PDS: We probably do not require this, or at least the tries portion, since Invoke-RestMethod already supports retries.
-function Invoke-RestMethodWithRetries {
-    param ()
-    # [string]$cli_ctx
-    [string]$method
-    [string]$url
-    [string]$headers
-    # [string]$faultType
-    # [string]$summary
-    [hashtable]$uriParameters
-    [string]$resource
-    [string]$requestBody = ""
-    [integer]$retryCount = 5
-    [integer]$retryDelay = 3
-
-    $thisRetry = 0
-    $success = $false
-
-    # !!PDS: Are we going to have to reproduce the resource extraction logic and the CLI context?
-    # !!PDS: We do somehow need to get an Azure token so need a resource ID from somewhere.
-    # !!PDS: We are using this to access the Cluster Config DP so does that even have a
-    #        resource and does it require an Azure token?  Or do we base this on the
-    #        Arc connected cluster that we have created/are creating?
-
-    # Add URI parameters to end of URL if there are any.
-    if ($uriParameters.Count() -gt 0) {
-        # Create an array by joining hash index and value using '=' and join them using '&'
-        $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
-        $url = "$url?$uriParametersArray"
-    }
-
-    while (-not $success -and $thisRetry -lt $retryCount) {
-        try {
-            # response = send_raw_request(cli_ctx, method, url, headers=headers, uri_parameters=uri_parameters, resource=resource, body=request_body)
-            $response = Invoke-RestMethod -Uri $url -Method $method -Headers $headers -Body $requestBody -ContentType "application/json"
-            # Assuming success if no exception is thrown
-            $success = $true
-            Write-Output "Request successful."
-        }
-        catch {
-            $thisCount++
-            Write-Warning "Attempt $thisRetry of $retryCount failed: $_"
-            Start-Sleep -Seconds $retryDelay
-        }
-    }
-
-    if (-not $success) {
-        throw "Failed to complete request after $retryCount attempts."
-    }
-
-    return $response
-}
+# function Invoke-RestMethodWithRetries {
+#     param ()
+#     # [string]$cli_ctx
+#     [string]$method
+#     [string]$url
+#     [string]$headers
+#     # [string]$faultType
+#     # [string]$summary
+#     [hashtable]$uriParameters
+#     [string]$resource
+#     [string]$requestBody = ""
+#     [integer]$retryCount = 5
+#     [integer]$retryDelay = 3
+# 
+#     $thisRetry = 0
+#     $success = $false
+# 
+#     # !!PDS: Are we going to have to reproduce the resource extraction logic and the CLI context?
+#     # !!PDS: We do somehow need to get an Azure token so need a resource ID from somewhere.
+#     # !!PDS: We are using this to access the Cluster Config DP so does that even have a
+#     #        resource and does it require an Azure token?  Or do we base this on the
+#     #        Arc connected cluster that we have created/are creating?
+# 
+#     # Add URI parameters to end of URL if there are any.
+#     if ($uriParameters.Count() -gt 0) {
+#         # Create an array by joining hash index and value using '=' and join them using '&'
+#         $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
+#         $url = "$url?$uriParametersArray"
+#     }
+# 
+#     while (-not $success -and $thisRetry -lt $retryCount) {
+#         try {
+#             # response = send_raw_request(cli_ctx, method, url, headers=headers, uri_parameters=uri_parameters, resource=resource, body=request_body)
+#             $response = Invoke-RestMethod -Uri $url -Method $method -Headers $headers -Body $requestBody -ContentType "application/json"
+#             # Assuming success if no exception is thrown
+#             $success = $true
+#             Write-Output "Request successful."
+#         }
+#         catch {
+#             $thisCount++
+#             Write-Warning "Attempt $thisRetry of $retryCount failed: $_"
+#             Start-Sleep -Seconds $retryDelay
+#         }
+#     }
+# 
+#     if (-not $success) {
+#         throw "Failed to complete request after $retryCount attempts."
+#     }
+# 
+#     return $response
+# }
 
 function Invoke-RawRequest {
     param (
@@ -1126,8 +1164,6 @@ function Get-ValuesFile {
 function Get-HelmValues {
     param (
         [Parameter(Mandatory=$true)]
-        $Cmd,
-        [Parameter(Mandatory=$true)]
         $ConfigDpEndpoint,
         [string]$ReleaseTrainCustom,
         $RequestBody
@@ -1141,7 +1177,7 @@ function Get-HelmValues {
     if ($ReleaseTrainCustom) {
         $releaseTrain = $ReleaseTrainCustom
     }
-    $uriParameters = @("releaseTrain=$releaseTrain")
+    $uriParameters = @{releaseTrain=$releaseTrain}
     $resource = $Cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
     $headers = @{}
     if ($env:AZURE_ACCESS_TOKEN) {
@@ -1151,13 +1187,20 @@ function Get-HelmValues {
     # Sending request with retries
     try {
         # $r = Send-RequestWithRetries -CmdCtx $Cmd.cli_ctx -Method 'post' -Url $chartLocationUrl -Headers $headers -FaultType $consts.Get_HelmRegistery_Path_Fault_Type -Summary 'Error while fetching helm chart registry path' -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody
-        $r = Invoke-RestMethodWithRetries -Method 'post' -Url $chartLocationUrl -Headers $headers -FaultType $consts.Get_HelmRegistery_Path_Fault_Type -Summary 'Error while fetching helm chart registry path' -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody
-        if ($r.Content) {
-            $responseJson = $r.Content | ConvertFrom-Json
-            return $responseJson
+        # $r = Invoke-RestMethodWithRetries -Method 'post' -Url $chartLocationUrl -Headers $headers -FaultType $consts.Get_HelmRegistery_Path_Fault_Type -Summary 'Error while fetching helm chart registry path' -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody
+        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
+
+        # !!PDS: Response is a Hashtable of JSON values.
+        if ($statusCode -eq 200 -and $r) {
+            Write-Debug "Response: $r"
+            Write-Debug "Response: ${r.helmContentValues}"
+            Write-Debug "Response: ${r[helmContentValues]}"
+            #$responseJson = $r | ConvertFrom-Json
+            #return $responseJson
+            return $r
         }
         else {
-            [Microsoft.Azure.Commands.Common.Exceptions.CliInternalError]::new("No content was found in helm registry path response.")
+            throw "No content was found in helm registry path response, StatusCode: ${statusCode}."
         }
     }
     catch {
@@ -1230,6 +1273,8 @@ function Get-HelmChart {
         $basePath = Split-Path $chartUrl -Parent
         $imageName = Split-Path $chartUrl -Leaf
         $chartUrl = "$basePath/v2/$imageName"
+        # !!PDS: replace Split-Path as this messes up the separators!
+        $chartUrl=$chartUrl.replace('\', '/')
     }
 
     $cmdHelmChartPull = @($HelmClientLocation, "pull", "oci://$chartUrl", "--untar", "--untardir", $ChartExportPath, "--version", $chartVersion)
@@ -1240,6 +1285,7 @@ function Get-HelmChart {
         $cmdHelmChartPull += "--kube-context", $KubeContext
     }
 
+    Write-Debug "Pull helm chart: $cmdHelmChartPull[0] $cmdHelmChartPull[1..($cmdHelmChartPull.Count - 1)]"
     for ($i = 0; $i -lt $RetryCount; $i++) {
         try {
             & $cmdHelmChartPull[0] $cmdHelmChartPull[1..($cmdHelmChartPull.Count - 1)]
