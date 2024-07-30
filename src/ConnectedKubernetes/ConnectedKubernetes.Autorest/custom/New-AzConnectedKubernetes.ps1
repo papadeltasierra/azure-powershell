@@ -33,7 +33,7 @@ https://learn.microsoft.com/powershell/module/az.connectedkubernetes/new-azconne
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='Helm values is a recognised term', Scope='Function', Target='Get-HelmValues')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-    Justification='MetaData is a recognised term', Scope='Function', Target='Get-MetaData')]
+    Justification='MetaData is a recognised term', Scope='Function', Target='Get-AzCloudMetaData')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='Willl retry multiple times', Scope='Function', Target='Invoke-RestMethodWithUriParameters')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
@@ -316,21 +316,20 @@ function New-AzConnectedKubernetes {
         }
 
         $CommonPSBoundParameters = @{}
-        # !!PDS: More of these to replace with ":..."
-        if ($PSBoundParameters.ContainsKey('HttpPipelineAppend')) {
+        if ($PSBoundParameters:HttpPipelineAppend) {
             $CommonPSBoundParameters['HttpPipelineAppend'] = $HttpPipelineAppend
         }
-        if ($PSBoundParameters.ContainsKey('HttpPipelinePrepend')) {
+        if ($PSBoundParameters:HttpPipelinePrepend) {
             $CommonPSBoundParameters['HttpPipelinePrepend'] = $HttpPipelinePrepend
         }
-        if ($PSBoundParameters.ContainsKey('SubscriptionId')) {
+        if ($PSBoundParameters:SubscriptionId) {
             $CommonPSBoundParameters['SubscriptionId'] = $SubscriptionId
         }
-        if ($PSBoundParameters.ContainsKey('PrivateLinkState') -and ($null -ne $CustomLocationsOid) -and ($CustomLocationsOid -ne '')) {
+        if ($PSBoundParametersPrivateLinkState -and ($null -ne $CustomLocationsOid) -and ($CustomLocationsOid -ne '')) {
             Write-Warning "The features 'cluster-connect' and 'custom-locations' cannot be enabled for a private link enabled connected cluster."
             $CustomLocationsOid = $null
         }
-        if ($PSBoundParameters.ContainsKey('CustomLocationsOid')) {
+        if ($PSBoundParametersCustomLocationsOid) {
             $Null = $PSBoundParameters.Remove('CustomLocationsOid')
         }
         $IdentityType = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Support.ResourceIdentityType]::SystemAssigned
@@ -377,7 +376,8 @@ function New-AzConnectedKubernetes {
                 $ExistConnectedKubernetes = Get-AzConnectedKubernetes -ResourceGroupName $ConfigmapRgName -ClusterName $ConfigmapClusterName @CommonPSBoundParameters
 
                 if (($ResourceGroupName -eq $ConfigmapRgName) -and ($ClusterName -eq $ConfigmapClusterName)) {
-                    # !!PDS: Looks like this performs a re-PUT of an existing connected cluster.
+                    # This performs a re-PUT of an existing connected cluster which should really be done using
+                    # a Set-AzConnectedKubernetes cmdlet!
                     $PSBoundParameters.Add('AgentPublicKeyCertificate', $ExistConnectedKubernetes.AgentPublicKeyCertificate)
                     return Az.ConnectedKubernetes.internal\New-AzConnectedKubernetes @PSBoundParameters
                 } else {
@@ -387,7 +387,6 @@ function New-AzConnectedKubernetes {
                 return
             } catch {
                 # This is attempting to delete Azure Arc resources that are orphaned.
-                # !!PDS: Why would we do this?  Surely we should not be deleting existing resources?
                 helm delete azure-arc --namespace $ReleaseNamespace --kubeconfig $KubeConfig --kube-context $KubeContext
             }
         }
@@ -434,8 +433,6 @@ function New-AzConnectedKubernetes {
                 "Authorization" = "Bearer $AccessToken"
             }
 
-            # !!PDS This appears to be where we (might) query the configuration DP.
-            # !!PDS: except we only seem to be requesting the helm chart registry path.
             $Response = Invoke-WebRequest -Uri $Uri -Headers $HeaderParameter -Method Post -UseBasicParsing
             if ($Response.StatusCode -eq 200) {
                 $RegisteryPath = ($Response.Content | ConvertFrom-Json).repositoryPath
@@ -461,8 +458,9 @@ function New-AzConnectedKubernetes {
         } else {
             $ChartExportPath = Join-Path -Path $Home -ChildPath '.azure' | Join-Path -ChildPath 'AzureArcCharts'
         }
+        Write-Debug "Export (make local copy) of heml chart to ${ChartExportPath}."
         try {
-            # !!PDS: Exporting a helm chart creates a local copy.
+            # Exporting a helm chart to create a local copy.
             helm chart export $RegisteryPath --kubeconfig $KubeConfig --kube-context $KubeContext --destination $ChartExportPath
         } catch {
             throw "Unable to export helm chart from the registery $RegisteryPath"
@@ -493,12 +491,6 @@ function New-AzConnectedKubernetes {
             $ChartPath = $HelmChartPath
         }
 
-        # !!PDS: Appears that we ignore the cluster config DP and generate
-        #        config ourselves here.  This might be a change that we have to
-        #        make as part of this work.
-        # !!PDS: Add gateway stuff here?
-        # !!PDS: No, not part of the "global" configuration.  That config gets given to us later.
-
         #Region helm options
         $options = ""
         $proxyEnableState = $false
@@ -508,8 +500,8 @@ function New-AzConnectedKubernetes {
             $HttpProxyStr = $HttpProxyStr -replace '/','\/'
             $options += " --set global.httpProxy=$HttpProxyStr"
             $proxyEnableState = $true
-            # !!PDS: Note how we are removing k8s parameters from the list of
-            #        parameters to pass to the internal command.
+            # Note how we are removing k8s parameters from the list of parameters
+            # to pass to the internal (creates ARM object) command.
             $Null = $PSBoundParameters.Remove('HttpProxy')
         }
         if (-not ([string]::IsNullOrEmpty($HttpsProxy))) {
@@ -580,19 +572,18 @@ function New-AzConnectedKubernetes {
             }
         }
 
-        # !!PDS: Check the health of the config DP before we proceed.
+        # A lot of what follows relies on knowing the cloud we are using and the
+        # various endpoints so get that information now.
+        $cloudMetadata = Get-AzCloudMetadata
+
         # Perform DP health check
 
-        # !!PDS: This only appears to be used for Dogfood.
+        # !!PDS: There is no dogfood so not required?
         # $valuesFile = Get-ValuesFile
-        # !!PDS: Remove magic string for the ARM endpoint, perhaps into a consts or similar?
-        $armMetadata = Get-Metadata -ArmEndpoint 'https://management.azure.com'
-        # !!PDS: Values fileonly used for dogfood?
-        # $configDpinfo = Get-ConfigDPEndpoint -location $Location -valuesFile $valuesFile -armMetadata $armMetadata
-        $configDpinfo = Get-ConfigDPEndpoint -location $Location -armMetadata $armMetadata
+        $configDpinfo = Get-ConfigDPEndpoint -location $Location -Cloud $cloudMetadata
         $configDPEndpoint = $configDpInfo.configDPEndpoint
-
-        Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint
+        $adResourceId = $configDpInfo.adResourceId
+        Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint -Resource $adResourceId
 
         # This call does the "pure ARM" update of the ARM objects.
         Write-Debug "Writing Connected Kubernetes ARM objects."
@@ -606,6 +597,15 @@ function New-AzConnectedKubernetes {
 
         # Allow a custom OCI registry to be set via environment variables.
         # !!PDS: Where are these variables documented?  Should they be?
+        #
+        # AZURE_ACCESS_TOKEN
+        # HELMCHART
+        # HELMCHART
+        # HELMREGISTRY
+        # HELMVALUESPATH
+        # RELEASETRAIN
+        # USERPROFILE
+        #
         $registryPath = if ($env:HELMREGISTRY) { $env:HELMREGISTRY } else { $helmValuesDp.repositoryPath }
         Write-Debug "RegistryPath: ${registryPath}."
 
@@ -688,7 +688,8 @@ function New-AzConnectedKubernetes {
 
 function Invoke-HealthCheckDP {
     param (
-        [string]$configDPEndpoint
+        [string]$configDPEndpoint,
+        [string]$adResourceId
     )
 
     Write-Debug "Perform DP health check"
@@ -697,8 +698,6 @@ function Invoke-HealthCheckDP {
     $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
     $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
     $uriParameters = @{}
-    # $resource = $cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
-    $resource = 'https://management.core.windows.net/'
     $headers = @{}
     # Check if key AZURE_ACCESS_TOKEN exists in environment variables
     if ($env:AZURE_ACCESS_TOKEN) {
@@ -707,7 +706,7 @@ function Invoke-HealthCheckDP {
 
     # Sending request with retries
     # $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
-    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $resource -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
+    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $adResourceId -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
     if ($statusCode -eq 200) {
         Write-Output "Health check for DP is successful."
         return $true
@@ -717,7 +716,6 @@ function Invoke-HealthCheckDP {
     }
 }
 
-# !!PDS: We probably do not require this, or at least the tries portion, since Invoke-RestMethod already supports retries.
 function Invoke-RestMethodWithUriParameters {
     param (
         [String]$method,
@@ -833,13 +831,6 @@ function Invoke-RawRequest {
         }
     }
 
-    # !!PDS: Not sure how this context gets set up and how we duplicate this.
-    # Add telemetry - what is this for?  Logging?
-    # $headers['CommandName'] = $cli_ctx.data['command']
-    # if ($cli_ctx.data['safe_params']) {
-    #     $headers['ParameterSetName'] = ($cli_ctx.data['safe_params'] -join ' ')
-    # }
-
     $result = @{}
     foreach ($s in $uri_parameters.GetEnumerator()) {
         try {
@@ -856,6 +847,7 @@ function Invoke-RawRequest {
     $uri_parameters = if ($result.Count -gt 0) { $result } else { $null }
 
     # !!PDS: Again, need setting up!  Do we only expect ARM resource IDs?
+    # ???????
     $endpoints = $cli_ctx.cloud.endpoints
     # If url is an ARM resource ID, like /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01,
     # default to Azure Resource Manager.
@@ -983,21 +975,15 @@ function Get-SubscriptionIdFromResourceId {
 
 function Get-ConfigDPEndpoint {
     param (
-        # [Parameter(Mandatory=$true)]
-        # $Cmd,
         [Parameter(Mandatory=$true)]
         $Location,
-        $ArmMetadata
+        [Parameter(Mandatory=$true)]
+        $cloudMetadata
     )
 
     $ReleaseTrain = $null
     $ConfigDpEndpoint = $null
 
-    if (-not $ArmMetadata) {
-        # !!PDS: Need to write this.
-        # $ArmMetadata = Get-Metadata -CloudEndpoint $Cmd.cli_ctx.cloud.endpoints.resource_manager
-        $ArmMetadata = Get-Metadata -CloudEndpoint 'https://management.azure.com'
-    }
 
     # !!PDS: No dogfood!
     # # Read and validate the helm values file for Dogfood.
@@ -1009,8 +995,8 @@ function Get-ConfigDPEndpoint {
     # }
 
     # Get the values or endpoints required for retrieving the Helm registry URL.
-    if ($ArmMetadata.dataplaneEndpoints -and $ArmMetadata.dataplaneEndpoints.arcConfigEndpoint) {
-        $ConfigDpEndpoint = $ArmMetadata.dataplaneEndpoints.arcConfigEndpoint
+    if ($cloudMetadata.dataplaneEndpoints -and $cloudMetadata.dataplaneEndpoints.arcConfigEndpoint) {
+        $ConfigDpEndpoint = $armMetadata.dataplaneEndpoints.arcConfigEndpoint
     }
     else {
         Write-Debug "'arcConfigEndpoint' doesn't exist under 'dataplaneEndpoints' in the ARM metadata."
@@ -1018,41 +1004,48 @@ function Get-ConfigDPEndpoint {
 
     # Get the default config dataplane endpoint.
     if (-not $ConfigDpEndpoint) {
-        # !!PDS: Need to write this.
-        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Location $Location
+        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Location $Location -CloudMetadata $cloudMetadata
     }
+    $ADResourceId = Get-ADResourceId -CloudMetadata $cloudMetadata
 
-    return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain }
+    return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain; ADResourceId = $ADResourceId }
 }
-
-# def get_default_config_dp_endpoint(cmd, location):
-#     cloud_based_domain = cmd.cli_ctx.cloud.endpoints.active_directory.split(".")[2]
-#     config_dp_endpoint = "https://{}.dp.kubernetesconfiguration.azure.{}".format(
-#         location, cloud_based_domain
-#     )
-#     return config_dp_endpoint
 
 function Get-DefaultConfigDpEndpoint {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$location
+        [string]$location,
+        [Parameter(Mandatory=$true)]
+        [string]$cloudMetadata
     )
 
-    # !!PDS: Looks like we really do need to know this somehow.  Probably different for Fairfax and Mooncake.
-    # $cloudBasedDomain = ($cmd.cli_ctx.cloud.endpoints.active_directory -split "\.")[2]
-    $cloudBasedDomain = 'com'
-    $configDpEndpoint = "https://$location.dp.kubernetesconfiguration.azure.$cloudBasedDomain"
+    # Search the $armMetadata hash for the entry where the "name" parameter matches
+    # $cloud and then find the login endpoint, from which we can discern the
+    # appropriate "cloud based domain ending".
+    $cloudBasedDomain = ($cloudMetadata.authentication.loginEndpoint -split "\.")[2]
+    $configDpEndpoint = "https://${location}.dp.kubernetesconfiguration.azure.${cloudBasedDomain}"
     return $configDpEndpoint
 }
 
-Function Get-Metadata {
+function Get-ADResourceId {
     param (
-        [string]$ArmEndpoint,
+        [Parameter(Mandatory=$true)]
+        [string]$cloudMetadata
+    )
+
+    # Search the $armMetadata hash for the entry where the "name" parameter matches
+    # $cloud and then find the login endpoint, from which we can discern the
+    # appropriate "cloud based domain ending".
+    return $cloudMetadata.authentication.audiences[0]
+}
+
+Function Get-AzCloudMetadata {
+    param (
         [string]$ApiVersion = "2022-09-01"
     )
 
-    $MetadataUrlSuffix = "/metadata/endpoints?api-version=$ApiVersion"
-    $MetadataEndpoint = $null
+    # This is a known endpoint.
+    $MetadataEndpoint = "https://management.azure.com/metadata/endpoints?api-version=$ApiVersion"
 
     try {
         $MetadataEndpoint = $ArmEndpoint + $MetadataUrlSuffix
@@ -1070,6 +1063,17 @@ Function Get-Metadata {
         $Msg = "Failed to request ARM metadata $MetadataEndpoint."
         Write-Error "$Msg Please ensure you have network connection. Error: $_"
     }
+
+    # The current cloud in use is set by the user so query it and then we can use
+    # it to index into the ARM Metadata.
+    $context = Get-AzContext
+    $cloudName = $context.Environment.Name
+
+    # Search the $armMetadata hash for the entry where the "name" parameter matches
+    # $cloud and then find the login endpoint, from which we can discern the
+    # appropriate "cloud based domain ending".
+    $cloud = $armMetadata.dataplaneEndpoints | Where-Object { $_.name -eq $cloudName }
+    return $cloud
 }
 
 # !!PDS: Not sure there will ever be one of these!
