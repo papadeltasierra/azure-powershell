@@ -688,8 +688,7 @@ function New-AzConnectedKubernetes {
 
 function Invoke-HealthCheckDP {
     param (
-        [string]$configDPEndpoint,
-        [string]$adResourceId
+        [string]$configDPEndpoint
     )
 
     Write-Debug "Perform DP health check"
@@ -706,7 +705,7 @@ function Invoke-HealthCheckDP {
 
     # Sending request with retries
     # $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
-    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $adResourceId -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
+    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
     if ($statusCode -eq 200) {
         Write-Output "Health check for DP is successful."
         return $true
@@ -722,7 +721,6 @@ function Invoke-RestMethodWithUriParameters {
         [String]$uri,
         [Hashtable]$headers,
         [Hashtable]$uriParameters,
-        [String]$resource,
         [String]$requestBody,
         [Int]$maximumRetryCount,
         [Int]$retryIntervalSec,
@@ -742,7 +740,7 @@ function Invoke-RestMethodWithUriParameters {
     #     $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
     # }
     Write-Debug "Issue REST request to ${uri} with method ${method} and headers ${headers} and body ${requestBody}"
-    $rsp = Invoke-RestMethod -Method $method -Uri $uri -Headers $headers -Body $requestBody -ContentType "application/json"  -MaximumRetryCount $maximumRetryCount -RetryIntervalSec $retryintervalSec -StatusCodeVariable statusCode -Resource $resource
+    $rsp = Invoke-RestMethod -Method $method -Uri $uri -Headers $headers -Body $requestBody -ContentType "application/json"  -MaximumRetryCount $maximumRetryCount -RetryIntervalSec $retryintervalSec -StatusCodeVariable statusCode
     Set-Variable -Name "${statusCodeVariable}" -Value $statusCode -Scope script
     if ($statusCode -ne 200) {
         throw "health check failed, StatusCode: ${statusCode}."
@@ -774,9 +772,9 @@ function Get-SubscriptionIdFromResourceId {
 function Get-ConfigDPEndpoint {
     param (
         [Parameter(Mandatory=$true)]
-        $Location,
+        [string]$Location,
         [Parameter(Mandatory=$true)]
-        $cloudMetadata
+        [PSCustomObject]$cloudMetadata
     )
 
     $ReleaseTrain = $null
@@ -814,7 +812,7 @@ function Get-DefaultConfigDpEndpoint {
         [Parameter(Mandatory=$true)]
         [string]$location,
         [Parameter(Mandatory=$true)]
-        [string]$cloudMetadata
+        [PSCustomObject]$cloudMetadata
     )
 
     # Search the $armMetadata hash for the entry where the "name" parameter matches
@@ -828,12 +826,15 @@ function Get-DefaultConfigDpEndpoint {
 function Get-ADResourceId {
     param (
         [Parameter(Mandatory=$true)]
-        [string]$cloudMetadata
+        [PSCustomObject]$cloudMetadata
     )
 
     # Search the $armMetadata hash for the entry where the "name" parameter matches
     # $cloud and then find the login endpoint, from which we can discern the
     # appropriate "cloud based domain ending".
+    Write-Error "${cloudMetadata}"
+    Write-Error "${cloudMetadata.authentication}"
+    Write-Error "${cloudMetadata.authentication.audiences}"
     return $cloudMetadata.authentication.audiences[0]
 }
 
@@ -846,13 +847,9 @@ Function Get-AzCloudMetadata {
     $MetadataEndpoint = "https://management.azure.com/metadata/endpoints?api-version=$ApiVersion"
 
     try {
-        $MetadataEndpoint = $ArmEndpoint + $MetadataUrlSuffix
         $Response = Invoke-RestMethod -Uri $MetadataEndpoint -Method Get -StatusCodeVariable StatusCode
 
-        if ($StatusCode -eq 200) {
-            return $Response
-        }
-        else {
+        if ($StatusCode -ne 200) {
             $Msg = "ARM metadata endpoint '$MetadataEndpoint' returned status code $($StatusCode)."
             throw $Msg
         }
@@ -864,13 +861,20 @@ Function Get-AzCloudMetadata {
 
     # The current cloud in use is set by the user so query it and then we can use
     # it to index into the ARM Metadata.
-    $context = Get-AzContext
+    $context = $null
+    try {
+        $context = Get-AzContext
+    }
+    catch 
+    {
+        throw "Failed to get the current Azure context. Error: $_"
+    }
     $cloudName = $context.Environment.Name
 
     # Search the $armMetadata hash for the entry where the "name" parameter matches
     # $cloud and then find the login endpoint, from which we can discern the
     # appropriate "cloud based domain ending".
-    $cloud = $armMetadata.dataplaneEndpoints | Where-Object { $_.name -eq $cloudName }
+    $cloud = $Response | Where-Object { $_.name -eq $cloudName }
     return $cloud
 }
 
@@ -917,7 +921,7 @@ function Get-HelmValues {
 
     # Sending request with retries
     try {
-        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -Resource $resource -RequestBody $RequestBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
+        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -RequestBody $RequestBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
 
         # Response is a Hashtable of JSON values.
         if ($statusCode -eq 200 -and $r) {
