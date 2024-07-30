@@ -750,208 +750,6 @@ function Invoke-RestMethodWithUriParameters {
     return $rsp
 }
 
-function Invoke-RawRequest {
-    param (
-        [string]$method,
-        [string]$url,
-        [hashtable]$headers = @{},
-        [hashtable]$uri_parameters = @{},
-        [string]$body,
-        [bool]$skip_authorization_header = $false,
-        [string]$resource
-    )
-
-    # Import required modules
-    Import-Module -Name 'Microsoft.PowerShell.Utility'
-
-    # Initialize result as a case-insensitive hashtable
-    $result = @{}
-
-    # Process headers, if provided
-    if ($null -eq $headers) {
-        foreach ($header in $headers.GetEnumerator()) {
-            try {
-                # Attempt to parse header if it's in JSON format
-                $temp = ConvertFrom-Json $header.Value
-                foreach ($key in $temp.Keys) {
-                    $result[$key] = $temp[$key]
-                }
-            }
-            catch {
-                # If not JSON, split by '=' and add to result
-                $keyValue = $header.Value -split '=', 2
-                $result[$keyValue[0]] = $keyValue[1]
-            }
-        }
-    }
-
-    # If Authorization header is already provided, don't bother with the token
-    if ($result:Authorization) {
-        $skip_authorization_header = $true
-    }
-
-    # !!PDS: Assume that using the Get-InvokeRest method will set the user-agent
-    # accordingly so we do not need to do that here.
-    # Handle User-Agent
-    # !!PDS: This does not exist until we implement it!
-    # $userAgents = @((Get-AzRestUserAgent))
-    #
-    # # Borrow AZURE_HTTP_USER_AGENT from msrest
-    # $envAdditionalUserAgent = 'AZURE_HTTP_USER_AGENT'
-    # if ($env.ContainsKey($envAdditionalUserAgent)) {
-    #     $userAgents += $env[$envAdditionalUserAgent]
-    # }
-    #
-    # # Custom User-Agent provided as command argument
-    # if ($headers.ContainsKey('User-Agent')) {
-    #     $userAgents += $headers['User-Agent']
-    # }
-    # $headers['User-Agent'] = $userAgents -join ' '
-    # Set telemetry User-Agent
-    # !!PDS: This does not exist until we write it!
-    # Set-AzUserAgent -UserAgent $headers['User-Agent']
-    #
-    # if ($generatedClientRequestIdName) {
-    #     $headers[$generatedClientRequestIdName] = [guid]::NewGuid().ToString()
-    # }
-
-    # Try to figure out the correct content type
-    if ($body) {
-        try {
-            $bodyObject = ConvertFrom-Json $body -ErrorAction Stop
-            # Convert back to JSON to ensure Unicode characters are escaped
-            $body = $bodyObject | ConvertTo-Json -Compress
-            if (-not $headers.ContainsKey('Content-Type')) {
-                $headers['Content-Type'] = 'application/json'
-            }
-        }
-        catch {
-            Write-Error "The body is not valid JSON."
-            return
-        }
-    }
-
-    $result = @{}
-    foreach ($s in $uri_parameters.GetEnumerator()) {
-        try {
-            $temp = ConvertFrom-Json $s.Value -ErrorAction Stop
-            foreach ($key in $temp.Keys) {
-                $result[$key] = $temp[$key]
-            }
-        }
-        catch {
-            $keyValue = $s.Value -split '=', 2
-            $result[$keyValue[0]] = $keyValue[1]
-        }
-    }
-    $uri_parameters = if ($result.Count -gt 0) { $result } else { $null }
-
-    # !!PDS: Again, need setting up!  Do we only expect ARM resource IDs?
-    # ???????
-    $endpoints = $cli_ctx.cloud.endpoints
-    # If url is an ARM resource ID, like /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01,
-    # default to Azure Resource Manager.
-    # https://management.azure.com + /subscriptions/xxx/resourcegroups/xxx?api-version=2019-07-01
-    if (-not $url.Contains('://')) {
-        # $url = $endpoints.resource_manager.TrimEnd('/') + $url
-        # !!PDS: Should this be a "new global::System.Uri()"?
-        $url = "https://management.azure.com//" + $url
-    }
-
-    # !!PDS: We do not expect customers to be doing anything like this with connected clusters.
-    # !!PDS: Does imply that this is a general purpose function and heree might be more to trim!
-    # # Replace common tokens with real values. It is for smooth experience if users copy and paste the url from
-    # # Azure Rest API doc
-    # # $cliProfile = [Azure.Cli.Core.Profile]::new($cli_ctx)
-    # if ($url.Contains('{subscriptionId}')) {
-    #     # $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { $cliProfile.GetSubscriptionId() }
-    #     $subscriptionId = if ($cli_ctx.data['subscription_id']) { $cli_ctx.data['subscription_id'] } else { Get-AzContext.Subscription }
-    #     $url = $url.Replace('{subscriptionId}', $subscriptionId)
-    # }
-
-    # Prepare the Bearer token for `Authorization` header
-    if (-not $skipAuthorizationHeader -and $url.ToLower().StartsWith('https://')) {
-        # Prepare `resource` for `get_raw_token`
-        if (-not $resource) {
-            # !!PDS: Assume standard ARM endpoint (we already do above)
-            # If url starts with ARM endpoint, like `https://management.azure.com/`,
-            # use `active_directory_resource_id` for resource, like `https://management.core.windows.net/`.
-            # This follows the same behavior as `azure.cli.core.commands.client_factory._get_mgmt_service_client`
-            # if ($url.ToLower().StartsWith($endpoints.resource_manager.TrimEnd('/'))) {
-                # !!PDS: But what is this?  Only if we have no resource ID, which I assume
-                #        we do as we should have the resource group?  Maybe not if just named?
-                # $resource = $endpoints.active_directory_resource_id
-                $resource = 'https://management.core.windows.net/'
-            # }
-            # else {
-            #     try {
-            #         # Scan the URL for all known (at least to this tool) resource endpoints.
-            #         $endpointProperties = [System.Linq.Enumerable]::Where([System.Type]::GetType("Microsoft.Azure.Commands.Profile.Models.PSAzureEnvironment").GetProperties(), { $args[0].Name -notmatch '^_' })
-            #         foreach ($p in $endpointProperties) {
-            #             $value = $p.GetValue($endpoints)
-            #             if ($value -and $url.ToLower().StartsWith($value.ToLower())) {
-            #                 # This is a resource for an endpoint that we recognise so we can accept it.
-            #                 $resource = $value
-            #                 break
-            #             }
-            #         }
-            #     }
-            #     catch {
-            #         Write-Warning "Could not set the resource based on URL and endpoints."
-            #     }
-            # }
-        }
-        if ($resource) {
-            # Prepare `subscription` for `get_raw_token`
-            # If this is an ARM request, try to extract subscription ID from the URL.
-            $tokenSubscription = $null
-            if ($url.ToLower().StartsWith($endpoints.resource_manager.TrimEnd('/'))) {
-                $tokenSubscription = Get-SubscriptionIdFromResourceId $url
-            }
-            if ($tokenSubscription) {
-                Write-Debug "Retrieving token for resource $resource, subscription $tokenSubscription"
-                $tokenInfo = Get-AzAccessToken -ResourceUrl $resource -SubscriptionId $tokenSubscription
-            }
-            else {
-                Write-Debug "Retrieving token for resource $resource"
-                $tokenInfo = Get-AzAccessToken -ResourceUrl $resource
-            }
-            $headers = if ($null -eq $headers) { @{} } else { $headers }
-            $headers['Authorization'] = "$($tokenInfo.TokenType) $($tokenInfo.Token)"
-        }
-        else {
-            Write-Warning "Can't derive appropriate Azure AD resource from --url to acquire an access token. If access token is required, use --resource to specify the resource."
-        }
-    }
-
-    # Prepare the request
-    $uri = $url + '?' + ($uri_parameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '&'
-    $method = $method.ToUpper()
-
-    # !!PDS: Look for Write-Log... and similar
-    # Log the request (assuming _LogRequest is a function you've defined to log requests)
-    # _LogRequest $method, $uri, $headers, $body
-
-    # Send the request
-    $response = Invoke-RestMethod -Uri $uri -Method $method -Headers $headers -Body $body -WebSession $session -ContentType "application/json"
-
-    # Log the response (assuming _LogResponse is a function you've defined to log responses)
-    # !!PDS: Look for Write-Log... and similar
-    # _LogResponse $response
-
-    # Check for successful response
-    if ($response.StatusCode -ne 200) {
-        $reason = $response.ReasonPhrase
-        if ($response.Content) {
-            $reason += "($($response.Content))"
-        }
-        throw "HTTPError: $reason"
-    }
-
-    # Return the response
-    return $response
-}
-
 function Get-SubscriptionIdFromResourceId {
     param (
         [parameter(mandatory=$true)]
@@ -1077,22 +875,22 @@ Function Get-AzCloudMetadata {
 }
 
 # !!PDS: Not sure there will ever be one of these!
-function Get-ValuesFile {
-    # !!PDS: Review this syntax and used elsewhere?
-    $valuesFile = $env:HELMVALUESPATH
-    if ($null -ne $valuesFile -and (Test-Path $valuesFile)) {
-        Write-Warning "Values file detected. Reading additional helm parameters from same."
-        # Trimming required for Windows OS
-        if ($valuesFile.StartsWith("'") -or $valuesFile.StartsWith('"')) {
-            $valuesFile = $valuesFile.Substring(1)
-        }
-        if ($valuesFile.EndsWith("'") -or $valuesFile.EndsWith('"')) {
-            $valuesFile = $valuesFile.Substring(0, $valuesFile.Length - 1)
-        }
-        return $valuesFile
-    }
-    return $null
-}
+# function Get-ValuesFile {
+#     # !!PDS: Review this syntax and used elsewhere?
+#     $valuesFile = $env:HELMVALUESPATH
+#     if ($null -ne $valuesFile -and (Test-Path $valuesFile)) {
+#         Write-Warning "Values file detected. Reading additional helm parameters from same."
+#         # Trimming required for Windows OS
+#         if ($valuesFile.StartsWith("'") -or $valuesFile.StartsWith('"')) {
+#             $valuesFile = $valuesFile.Substring(1)
+#         }
+#         if ($valuesFile.EndsWith("'") -or $valuesFile.EndsWith('"')) {
+#             $valuesFile = $valuesFile.Substring(0, $valuesFile.Length - 1)
+#         }
+#         return $valuesFile
+#     }
+#     return $null
+# }
 
 function Get-HelmValues {
     param (
