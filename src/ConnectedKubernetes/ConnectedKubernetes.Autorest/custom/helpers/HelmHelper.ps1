@@ -33,7 +33,9 @@ function Get-HelmClientLocation {
             } else {
                 $HomePath = $Home
             }
-            $Version = "v3.6.3"
+            # !!PDS: Need newer helm?
+            # $Version = "v3.6.3"
+            $Version = "v3.15.3"
             $ZipName = "helm-$Version-windows-amd64.zip"
             $RootFolder = Join-Path -Path $HomePath -ChildPath ".azure" | Join-Path -ChildPath "helm" | Join-Path -ChildPath "$Version"
             $ZipLocation = Join-Path -Path $RootFolder -ChildPath $ZipName
@@ -49,7 +51,7 @@ function Get-HelmClientLocation {
                     Write-Verbose "Downloaded helm: $HelmLocation"
                 }
             } catch {
-                throw "Failed to download helm"
+                throw "Failed to download helm ($_)"
             }
         } else {
             Write-Warning "Helm version 3.6.3 is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"

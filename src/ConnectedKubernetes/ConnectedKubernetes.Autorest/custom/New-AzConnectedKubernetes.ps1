@@ -334,22 +334,24 @@ function New-AzConnectedKubernetes {
         $IdentityType = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Support.ResourceIdentityType]::SystemAssigned
         $PSBoundParameters.Add('IdentityType', $IdentityType)
 
-        #Region check helm install
-        try {
-            Set-HelmClientLocation
-            $HelmVersion = helm version --template='{{.Version}}' --kubeconfig $KubeConfig
-            if ($HelmVersion.Contains("v2")) {
-                Write-Error "Helm version 3+ is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-                return
-            }
-            $HelmVersion = helm version --short --kubeconfig $KubeConfig
-            if ($HelmVersion.Substring(1,$HelmVersion.Length-1) -ge [System.Version]"3.7") {
-                Write-Error "Helm version larger then 3.7 cannot pull that chart azure-arc. Please use 3.6. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-                Return
-            }
-        } catch {
-            throw "Helm version 3+ is required. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-        }
+        # !!PDS: Currently we cannot download the newest helm so just try the
+        #        test having installed helm outside of the script.
+        # #Region check helm install
+        # try {
+        #     Set-HelmClientLocation
+        #     $HelmVersion = helm version --template='{{.Version}}' --kubeconfig $KubeConfig
+        #     if ($HelmVersion.Contains("v2")) {
+        #         Write-Error "Helm version 3+ is required (not ${HelmVersion}). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
+        #         return
+        #     }
+        #     $HelmVersion = helm version --short --kubeconfig $KubeConfig
+        #     if ($HelmVersion.Substring(1,$HelmVersion.Length-1) -ge [System.Version]"3.7") {
+        #         Write-Error "Helm version larger then 3.7 cannot pull that chart azure-arc. Please use 3.6. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
+        #         Return
+        #     }
+        # } catch {
+        #     throw "Failed to install Helm version 3+ ($_). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
+        # }
         #EndRegion
         $helmClientLocation = 'helm'
 
@@ -614,6 +616,8 @@ function New-AzConnectedKubernetes {
         $chartPath = Get-ChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
 
         # Substitute any protected helm values as the value for that will be null
+        # !!PDS: Where are the unprotected values?
+        $protectedHelmValues = @{}
         foreach ($item in $protectedHelmValues.GetEnumerator()) {
             $helmContentValues[$item.Key] = $item.Value
         }
@@ -623,6 +627,7 @@ function New-AzConnectedKubernetes {
         $TenantId = [Microsoft.Azure.Commands.Common.Authentication.Abstractions.AzureRmProfileProvider]::Instance.Profile.DefaultContext.Tenant.Id
         try {
             helm upgrade `
+            --debug `
             --install azure-arc `
             $ChartPath `
             --namespace $ReleaseInstallNamespace `
@@ -1270,6 +1275,7 @@ function Get-HelmChart {
             throw "Operation not supported on older Agents: $errorSummary"
         }
 
+        
         $basePath = Split-Path $chartUrl -Parent
         $imageName = Split-Path $chartUrl -Leaf
         $chartUrl = "$basePath/v2/$imageName"
