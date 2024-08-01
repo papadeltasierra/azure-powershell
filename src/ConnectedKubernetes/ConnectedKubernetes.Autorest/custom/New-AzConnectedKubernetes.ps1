@@ -259,11 +259,21 @@ function New-AzConnectedKubernetes {
 
         [Parameter()]
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
+        [System.Collections.Hashtable]
+        # Arc Agentry System Configuration
+        ${ArcAgentrySettings},
+
+        [Parameter()]
+        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
+        [System.Collections.Hashtable]
+        # Arc Agentry System Protected Configuration
+        ${ArcAgentryProtectedSettings},
+
+        [Parameter()]
+        [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.String]
         # Arc Gateway resource Id
         ${GatewayResoureceId}
-
-        # !!PDS: Are we missing protected/unprotected stuff here?
     )
 
     process {
@@ -335,24 +345,29 @@ function New-AzConnectedKubernetes {
         $IdentityType = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Support.ResourceIdentityType]::SystemAssigned
         $PSBoundParameters.Add('IdentityType', $IdentityType)
 
-        # !!PDS: Currently we cannot download the newest helm so just try the
-        #        test having installed helm outside of the script.
-        # #Region check helm install
-        # try {
-        #     Set-HelmClientLocation
-        #     $HelmVersion = helm version --template='{{.Version}}' --kubeconfig $KubeConfig
-        #     if ($HelmVersion.Contains("v2")) {
-        #         Write-Error "Helm version 3+ is required (not ${HelmVersion}). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-        #         return
-        #     }
-        #     $HelmVersion = helm version --short --kubeconfig $KubeConfig
-        #     if ($HelmVersion.Substring(1,$HelmVersion.Length-1) -ge [System.Version]"3.7") {
-        #         Write-Error "Helm version larger then 3.7 cannot pull that chart azure-arc. Please use 3.6. Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-        #         Return
-        #     }
-        # } catch {
-        #     throw "Failed to install Helm version 3+ ($_). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
-        # }
+        #Region check helm install
+        try {
+            Set-HelmClientLocation
+            $HelmVersion = helm version --template='{{.Version}}' --kubeconfig $KubeConfig
+            if ($HelmVersion.Contains("v2")) {
+                Write-Error "Helm version 3+ is required (not ${HelmVersion}). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
+                return
+            }
+            $HelmVersion = helm version --short --kubeconfig $KubeConfig
+
+            # Compare the helm version to 3.8 in a symantic versioning valid way
+            # Strip the leading "v" from the helm version and discard any metadata
+            $HelmVersion = $HelmVersion.Substring(1)
+            $HelmVersion = $HelmVersion.Split('+')[0]
+            $helmV380 = [System.Version]::Parse("3.8.0")
+            $helmThisVersion= [System.Version]::Parse($HelmVersion)
+            if ($helmThisVersion -lt $helmV380) {
+                Write-Error "Helm version of at least 3.8 is required for latest OCI handling."
+                Return
+            }
+        } catch {
+            throw "Failed to install Helm version 3+ ($_). Learn more at https://aka.ms/arc/k8s/onboarding-helm-install"
+        }
         #EndRegion
         $helmClientLocation = 'helm'
 
@@ -403,7 +418,7 @@ function New-AzConnectedKubernetes {
             return
         }
         if (Test-Path Env:HELMREGISTRY) {
-            $RegisteryPath = Get-ChildItem -Path Env:HELMREGISTRY
+            $RegistryPath = Get-ChildItem -Path Env:HELMREGISTRY
         } else {
             $ReleaseTrain = ''
             if ((Test-Path Env:RELEASETRAIN) -and (Test-Path Env:RELEASETRAIN)) {
@@ -435,37 +450,13 @@ function New-AzConnectedKubernetes {
 
             $Response = Invoke-WebRequest -Uri $Uri -Headers $HeaderParameter -Method Post -UseBasicParsing
             if ($Response.StatusCode -eq 200) {
-                $RegisteryPath = ($Response.Content | ConvertFrom-Json).repositoryPath
+                $RegistryPath = ($Response.Content | ConvertFrom-Json).repositoryPath
             } else {
                 Write-Error "Error while fetching helm chart registry path: ${$Response.RawContent}"
                 return
             }
         }
         Set-Item -Path Env:HELM_EXPERIMENTAL_OCI -Value 1
-
-        #Region pull helm chart
-        try {
-            helm chart pull $RegisteryPath --kubeconfig $KubeConfig --kube-context $KubeContext
-        } catch {
-            throw "Unable to pull helm chart from the registery $RegisteryPath"
-        }
-        #Endregion
-
-        #Region export helm chart
-        if (Test-Path Env:Home) {
-            $ChartExportPath = Join-Path -Path (Get-Item Env:HOME).Value -ChildPath '.azure' | Join-Path -ChildPath 'AzureArcCharts'
-            # $KubeConfig = Join-Path -Path $Env:Home -ChildPath '.kube' | Join-Path -ChildPath 'config'
-        } else {
-            $ChartExportPath = Join-Path -Path $Home -ChildPath '.azure' | Join-Path -ChildPath 'AzureArcCharts'
-        }
-        Write-Debug "Export (make local copy) of heml chart to ${ChartExportPath}."
-        try {
-            # Exporting a helm chart to create a local copy.
-            helm chart export $RegisteryPath --kubeconfig $KubeConfig --kube-context $KubeContext --destination $ChartExportPath
-        } catch {
-            throw "Unable to export helm chart from the registery $RegisteryPath"
-        }
-        #Endregion
 
         # Region create RSA keys
         $RSA = [System.Security.Cryptography.RSA]::Create(4096)
@@ -484,14 +475,16 @@ function New-AzConnectedKubernetes {
         }
         #Endregion
 
-        $HelmChartPath = Join-Path -Path $ChartExportPath -ChildPath 'azure-arc-k8sagents'
-        if (Test-Path Env:HELMCHART) {
-            $ChartPath = Get-ChildItem -Path Env:HELMCHART
-        } else {
-            $ChartPath = $HelmChartPath
-        }
+        # $HelmChartPath = Join-Path -Path $ChartExportPath -ChildPath 'azure-arc-k8sagents'
+        # if (Test-Path Env:HELMCHART) {
+        #     $ChartPath = Get-ChildItem -Path Env:HELMCHART
+        # } else {
+        #     $ChartPath = $HelmChartPath
+        # }
 
         #Region helm options
+        # !!PDS: The az cli also sets the "proxy" fields in the settings and
+        #        passes these to Azure.  Do we need to do this as well?
         $options = ""
         $proxyEnableState = $false
         if (-not ([string]::IsNullOrEmpty($HttpProxy))) {
@@ -572,6 +565,45 @@ function New-AzConnectedKubernetes {
             }
         }
 
+        # Process the Arc agentry settings and protected settings
+        # Create any empty array of IArcAgentryConfigurations.
+        # shortened name to avoid class with type name.
+        $arcAgentryConfigs = @(
+        )
+
+        # !!PDS: The name "Setting" below is SINGULAR but in the Swagger it is PLURAL - why is this?
+        if ($ArcAgentrySettings) {
+            foreach ($key in $ArcAgentrySettings.Keys) {
+                $ArcAgentryConfiguration = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.ArcAgentryConfigurations]@{
+                    Feature = $key
+                    Setting = $ArcAgentrySettings[$key]
+                }
+                if ($ArcAgentryProtectedSettings -and $ArcAgentryProtectedSettings[$key]) {
+                    $ArcAgentryConfiguration.ProtectedSetting = $ArcAgentryProtectedSettings[$key]
+
+                    # Remove this key from ArcAgentryProtectedSettings.
+                    $Null = $ArcAgentryProtectedSettings.Remove($key)
+                }
+                $arcAgentryConfigs += $ArcAgentryConfiguration
+            }
+            $PSBoundParameters.Remove('ArcAgentrySettings')
+        }
+
+        # Add the remaining (protected only) settings.
+        if ($ArcAgentryProtectedSettings) {
+            foreach ($key in $ArcAgentryProtectedSettings.Keys) {
+                $ArcAgentryConfiguration = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Models.Api20240701Preview.ArcAgentryConfigurations]@{
+                    Feature = $key
+                    ProtectedSetting = $ArcAgentryprotectedSettings[$key]
+                }
+                $argAgentryConfigs += $ArcAgentryConfiguration
+            }
+            $PSBoundParameters.Remove('ArcAgentryProtectedSettings')
+        }
+
+        Write-Error "ArcAgentryConfiguration: $arcAgentryConfigs"
+        $PSBoundParameters.Add('ArcAgentryConfiguration', $arcAgentryConfigs)
+
         # A lot of what follows relies on knowing the cloud we are using and the
         # various endpoints so get that information now.
         $cloudMetadata = Get-AzCloudMetadata
@@ -622,6 +654,10 @@ function New-AzConnectedKubernetes {
 
         # Get helm chart path (within the OCI registry).
         $chartPath = Get-ChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
+        if (Test-Path Env:HELMCHART) {
+            $ChartPath = Get-ChildItem -Path Env:HELMCHART
+        }
+
         Write-Debug "Helm chart path: ${chartPath}."
 
         # Substitute any protected helm values as the value for that will be null
@@ -652,32 +688,6 @@ function New-AzConnectedKubernetes {
             --set systemDefaultValues.clusterconnect-agent.enabled=true `
             --set global.kubernetesDistro=$Distribution `
             --set global.kubernetesInfra=$Infrastructure (-split $options)
-
-        # !!PDS: How does the above match up against this from the az cli?
-        # !!PDS: Stuff that is not obvouus gets expanded into the request body
-        #        but how does this happen normally?  Not clear how these values
-        #        are all expanded.  e.g. "helm_content_values"?
-        # !!PDS: At least some of this is protected/unprotected values (which are new?).
-        # utils.helm_install_release(
-        #     cmd.cli_ctx.cloud.endpoints.resource_manager,
-        #     chart_path,
-        #     kubernetes_distro,        Yes, global.KuberetesDistro
-        #     kubernetes_infra,         Yes, global.KubernetesInfra
-        #     location,                 Yes, global.Location
-        #     private_key_pem,          Yes, global.OnboardingPrivateKey
-        #     kube_config,              Passed verbatim as "--kubeconfig" but how above?
-        #     kube_context,             Ditto.
-        #     no_wait,                  Controls whether timeout applies - see below.
-        #     values_file,              "-f" option to helm command.
-        #     azure_cloud,              Maybe, global.AzureEnvironment
-        #     enable_custom_locations,  Works with/against private link?
-        #     custom_locations_oid,     Works with/against private link?
-        #     helm_client_location,     This is the actual help client to run!
-        #     enable_private_link,      Works with/against custom locations?
-        #     arm_metadata,             Seems to define endpoints etc and get added as set values.
-        #     onboarding_timeout,       Sets a "--wait, --timeout" options to command if not "nowait".
-        #     helm_content_values,      Expanded as "set <thing>=<whotsit>" values; required?
-        #     )
 
         } catch {
             throw "Unable to install helm chart at $ChartPath"
@@ -780,7 +790,6 @@ function Get-ConfigDPEndpoint {
     $ReleaseTrain = $null
     $ConfigDpEndpoint = $null
 
-
     # !!PDS: No dogfood!
     # # Read and validate the helm values file for Dogfood.
     # if ($Cmd.cli_ctx.cloud.endpoints.resource_manager -eq $consts.Dogfood_RMEndpoint) {
@@ -865,7 +874,7 @@ Function Get-AzCloudMetadata {
     try {
         $context = Get-AzContext
     }
-    catch 
+    catch
     {
         throw "Failed to get the current Azure context. Error: $_"
     }
@@ -878,7 +887,7 @@ Function Get-AzCloudMetadata {
     return $cloud
 }
 
-# !!PDS: Not sure there will ever be one of these!
+# !!PDS: no dogfood so no need for this?
 # function Get-ValuesFile {
 #     # !!PDS: Review this syntax and used elsewhere?
 #     $valuesFile = $env:HELMVALUESPATH
@@ -913,7 +922,6 @@ function Get-HelmValues {
         $releaseTrain = $ReleaseTrainCustom
     }
     $uriParameters = @{releaseTrain=$releaseTrain}
-    $resource = $Cmd.cli_ctx.cloud.endpoints.active_directory_resource_id
     $headers = @{}
     if ($env:AZURE_ACCESS_TOKEN) {
         $headers["Authorization"] = "Bearer $($env:AZURE_ACCESS_TOKEN)"
