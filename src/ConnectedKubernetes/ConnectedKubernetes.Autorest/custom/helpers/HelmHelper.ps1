@@ -33,9 +33,8 @@ function Get-HelmClientLocation {
             } else {
                 $HomePath = $Home
             }
-            # !!PDS: Need newer helm?
             # $Version = "v3.6.3"
-            $Version = "v3.15.3"
+            $Version = "v3.12.2"
             $ZipName = "helm-$Version-windows-amd64.zip"
             $RootFolder = Join-Path -Path $HomePath -ChildPath ".azure" | Join-Path -ChildPath "helm" | Join-Path -ChildPath "$Version"
             $ZipLocation = Join-Path -Path $RootFolder -ChildPath $ZipName

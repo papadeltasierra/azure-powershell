@@ -634,7 +634,6 @@ function New-AzConnectedKubernetes {
         #
         # AZURE_ACCESS_TOKEN
         # HELMCHART
-        # HELMCHART
         # HELMREGISTRY
         # HELMVALUESPATH
         # RELEASETRAIN
@@ -662,12 +661,13 @@ function New-AzConnectedKubernetes {
 
         Write-Debug "Helm chart path: ${chartPath}."
 
-        # Substitute any protected helm values as the value for that will be null
-        # !!PDS: Where are the unprotected values?
-        $protectedHelmValues = @{}
-        foreach ($item in $protectedHelmValues.GetEnumerator()) {
-            $helmContentValues[$item.Key] = $item.Value
-        }
+        # !!PDS: I think this is wrong and should be replaced by the DP code.
+        # # Substitute any protected helm values as the value for that will be null
+        # # !!PDS: Where are the unprotected values?
+        # $protectedHelmValues = @{}
+        # foreach ($item in $protectedHelmValues.GetEnumerator()) {
+        #     $helmContentValues[$item.Key] = $item.Value
+        # }
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         # !!PDS: I think we might have done above, but why are we setting many options?
@@ -888,7 +888,6 @@ Function Get-AzCloudMetadata {
 
 # !!PDS: no dogfood so no need for this?
 # function Get-ValuesFile {
-#     # !!PDS: Review this syntax and used elsewhere?
 #     $valuesFile = $env:HELMVALUESPATH
 #     if ($null -ne $valuesFile -and (Test-Path $valuesFile)) {
 #         Write-Warning "Values file detected. Reading additional helm parameters from same."
