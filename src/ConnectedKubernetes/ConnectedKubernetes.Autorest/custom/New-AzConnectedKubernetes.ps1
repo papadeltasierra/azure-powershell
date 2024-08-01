@@ -31,8 +31,6 @@ https://learn.microsoft.com/powershell/module/az.connectedkubernetes/new-azconne
 #>
 
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-    Justification='MetaData is a recognised term', Scope='Function', Target='Get-AzCloudMetaData')]
-[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='Kubernetes is a recognised term', Scope='Function', Target='New-AzConnectedKubernetes')]
 param()
 
@@ -275,6 +273,7 @@ function New-AzConnectedKubernetes {
     process {
         . "$PSScriptRoot/helpers/HelmHelper.ps1"
         . "$PSScriptRoot/helpers/ConfigDPHelper.ps1"
+        . "$PSScriptRoot/helpers/AZCloudMetadataHelper.ps1"
         if($AzureHybridBenefit){
             if(!$AcceptEULA){
                 $legalTermPath = Join-Path $PSScriptRoot -ChildPath "LegalTerm.txt"
@@ -693,80 +692,5 @@ function New-AzConnectedKubernetes {
         }
         Return $Response
     }
-}
-
-
-function Get-SubscriptionIdFromResourceId {
-    param (
-        [parameter(mandatory=$true)]
-        [string]$resourceId
-    )
-
-    # Split the URL based on "/"
-    $resIdParts = $resourceId -split '/'
-
-    # Find the index of "subscriptions" in $urlParts
-    $subscriptionIndex = $resIdParts.IndexOf('subscriptions')
-
-    # If "subscriptions" is not found, return $null
-    if ($subscriptionIndex -eq -1) {
-        return $null
-    }
-
-    # Return the value after "subscriptions"
-    return $resIdParts[$subscriptionIndex + 1]
-}
-
-
-function Get-ADResourceId {
-    param (
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$cloudMetadata
-    )
-
-    # Search the $armMetadata hash for the entry where the "name" parameter matches
-    # $cloud and then find the login endpoint, from which we can discern the
-    # appropriate "cloud based domain ending".
-    return $cloudMetadata.authentication.audiences[0]
-}
-
-Function Get-AzCloudMetadata {
-    param (
-        [string]$ApiVersion = "2022-09-01"
-    )
-
-    # This is a known endpoint.
-    $MetadataEndpoint = "https://management.azure.com/metadata/endpoints?api-version=$ApiVersion"
-
-    try {
-        $Response = Invoke-RestMethod -Uri $MetadataEndpoint -Method Get -StatusCodeVariable StatusCode
-
-        if ($StatusCode -ne 200) {
-            $Msg = "ARM metadata endpoint '$MetadataEndpoint' returned status code $($StatusCode)."
-            throw $Msg
-        }
-    }
-    catch {
-        $Msg = "Failed to request ARM metadata $MetadataEndpoint."
-        Write-Error "$Msg Please ensure you have network connection. Error: $_"
-    }
-
-    # The current cloud in use is set by the user so query it and then we can use
-    # it to index into the ARM Metadata.
-    $context = $null
-    try {
-        $context = Get-AzContext
-    }
-    catch
-    {
-        throw "Failed to get the current Azure context. Error: $_"
-    }
-    $cloudName = $context.Environment.Name
-
-    # Search the $armMetadata hash for the entry where the "name" parameter matches
-    # $cloud and then find the login endpoint, from which we can discern the
-    # appropriate "cloud based domain ending".
-    $cloud = $Response | Where-Object { $_.name -eq $cloudName }
-    return $cloud
 }
 
