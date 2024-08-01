@@ -31,11 +31,7 @@ https://learn.microsoft.com/powershell/module/az.connectedkubernetes/new-azconne
 #>
 
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-    Justification='Helm values is a recognised term', Scope='Function', Target='Get-HelmValues')]
-[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='MetaData is a recognised term', Scope='Function', Target='Get-AzCloudMetaData')]
-[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
-    Justification='Willl retry multiple times', Scope='Function', Target='Invoke-RestMethodWithUriParameters')]
 [System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
     Justification='Kubernetes is a recognised term', Scope='Function', Target='New-AzConnectedKubernetes')]
 param()
@@ -278,6 +274,7 @@ function New-AzConnectedKubernetes {
 
     process {
         . "$PSScriptRoot/helpers/HelmHelper.ps1"
+        . "$PSScriptRoot/helpers/ConfigDPHelper.ps1"
         if($AzureHybridBenefit){
             if(!$AcceptEULA){
                 $legalTermPath = Join-Path $PSScriptRoot -ChildPath "LegalTerm.txt"
@@ -613,11 +610,11 @@ function New-AzConnectedKubernetes {
         # Perform DP health check
 
         # !!PDS: There is no dogfood so not required?
-        # $valuesFile = Get-ValuesFile
+        # $valuesFile = Get-HelmValuesFile
         $configDpinfo = Get-ConfigDPEndpoint -location $Location -Cloud $cloudMetadata
         $configDPEndpoint = $configDpInfo.configDPEndpoint
         $adResourceId = $configDpInfo.adResourceId
-        Invoke-HealthCheckDP -configDPEndpoint $configDPEndpoint -Resource $adResourceId
+        Invoke-ConfigDPHealthCheck -configDPEndpoint $configDPEndpoint -Resource $adResourceId
 
         # This call does the "pure ARM" update of the ARM objects.
         Write-Debug "Writing Connected Kubernetes ARM objects."
@@ -654,7 +651,7 @@ function New-AzConnectedKubernetes {
         # )
 
         # Get helm chart path (within the OCI registry).
-        $chartPath = Get-ChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
+        $chartPath = Get-HelmChartPath -registryPath $registryPath -kubeConfig $KubeConfig -kubeContext $KubeContext -helmClientLocation $HelmClientLocation
         if (Test-Path Env:HELMCHART) {
             $ChartPath = Get-ChildItem -Path Env:HELMCHART
         }
@@ -698,67 +695,6 @@ function New-AzConnectedKubernetes {
     }
 }
 
-function Invoke-HealthCheckDP {
-    param (
-        [string]$configDPEndpoint
-    )
-
-    Write-Debug "Perform DP health check"
-    # Setting uri
-    $apiVersion = "2024-07-01-preview"
-    $chartLocationUrlSegment = "azure-arc-k8sagents/healthCheck?api-version=$apiVersion"
-    $chartLocationUrl = "$configDPEndpoint/$chartLocationUrlSegment"
-    $uriParameters = @{}
-    $headers = @{}
-    # Check if key AZURE_ACCESS_TOKEN exists in environment variables
-    if ($env:AZURE_ACCESS_TOKEN) {
-        $headers = @{"Authorization"="Bearer $($env['AZURE_ACCESS_TOKEN'])"}
-    }
-
-    # Sending request with retries
-    # $r = Invoke-RestMethodWithRetries -method 'post' -url $chartLocationUrl -headers $headers -faultType $consts.Get_HelmRegistery_Path_Fault_Type -summary 'Error while performing DP health check' -uriParameters $uriParameters -resource $resource
-    Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCode
-    if ($statusCode -eq 200) {
-        Write-Output "Health check for DP is successful."
-        return $true
-    }
-    else {
-        throw "Error while performing DP health check, StatusCode: ${statusCode}"
-    }
-}
-
-function Invoke-RestMethodWithUriParameters {
-    param (
-        [String]$method,
-        [String]$uri,
-        [Hashtable]$headers,
-        [Hashtable]$uriParameters,
-        [String]$requestBody,
-        [Int]$maximumRetryCount,
-        [Int]$retryIntervalSec,
-        [String]$statusCodeVariable
-    )
-
-    # Add URI parameters to end of URL if there are any.
-    $uriParametersArray = @()
-    foreach ($Key in $hash.Keys) {
-        $uriParametersArray.Add("$($Key)=$($UriParameters[$Key])")
-        $uriParametersString = $uriParametersArray -join '&'
-        $uri = "$url?$uriParametersString"
-    }
-
-    # if ($uriParameters.count -gt 0) {
-    #     # Create an array by joining hash index and value using '=' and join them using '&'
-    #     $uriParametersArray = $uriParameters.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | ForEach-Object { $_ -join '=' } | ForEach-Object { $_ -join '&' }
-    # }
-    Write-Debug "Issue REST request to ${uri} with method ${method} and headers ${headers} and body ${requestBody}"
-    $rsp = Invoke-RestMethod -Method $method -Uri $uri -Headers $headers -Body $requestBody -ContentType "application/json"  -MaximumRetryCount $maximumRetryCount -RetryIntervalSec $retryintervalSec -StatusCodeVariable statusCode
-    Set-Variable -Name "${statusCodeVariable}" -Value $statusCode -Scope script
-    if ($statusCode -ne 200) {
-        throw "health check failed, StatusCode: ${statusCode}."
-    }
-    return $rsp
-}
 
 function Get-SubscriptionIdFromResourceId {
     param (
@@ -781,58 +717,6 @@ function Get-SubscriptionIdFromResourceId {
     return $resIdParts[$subscriptionIndex + 1]
 }
 
-function Get-ConfigDPEndpoint {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$Location,
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$cloudMetadata
-    )
-
-    $ReleaseTrain = $null
-    $ConfigDpEndpoint = $null
-
-    # !!PDS: No dogfood!
-    # # Read and validate the helm values file for Dogfood.
-    # if ($Cmd.cli_ctx.cloud.endpoints.resource_manager -eq $consts.Dogfood_RMEndpoint) {
-    #     # !!PDS Need to write this.
-    #     $result = Validate-EnvFileDogfood -ValuesFile $ValuesFile
-    #     $ConfigDpEndpoint = $result.ConfigDpEndpoint
-    #     $ReleaseTrain = $result.ReleaseTrain
-    # }
-
-    # Get the values or endpoints required for retrieving the Helm registry URL.
-    if ($cloudMetadata.dataplaneEndpoints -and $cloudMetadata.dataplaneEndpoints.arcConfigEndpoint) {
-        $ConfigDpEndpoint = $armMetadata.dataplaneEndpoints.arcConfigEndpoint
-    }
-    else {
-        Write-Debug "'arcConfigEndpoint' doesn't exist under 'dataplaneEndpoints' in the ARM metadata."
-    }
-
-    # Get the default config dataplane endpoint.
-    if (-not $ConfigDpEndpoint) {
-        $ConfigDpEndpoint = Get-DefaultConfigDPEndpoint -Location $Location -CloudMetadata $cloudMetadata
-    }
-    $ADResourceId = Get-ADResourceId -CloudMetadata $cloudMetadata
-
-    return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain; ADResourceId = $ADResourceId }
-}
-
-function Get-DefaultConfigDpEndpoint {
-    param (
-        [Parameter(Mandatory=$true)]
-        [string]$location,
-        [Parameter(Mandatory=$true)]
-        [PSCustomObject]$cloudMetadata
-    )
-
-    # Search the $armMetadata hash for the entry where the "name" parameter matches
-    # $cloud and then find the login endpoint, from which we can discern the
-    # appropriate "cloud based domain ending".
-    $cloudBasedDomain = ($cloudMetadata.authentication.loginEndpoint -split "\.")[2]
-    $configDpEndpoint = "https://${location}.dp.kubernetesconfiguration.azure.${cloudBasedDomain}"
-    return $configDpEndpoint
-}
 
 function Get-ADResourceId {
     param (
@@ -886,166 +770,3 @@ Function Get-AzCloudMetadata {
     return $cloud
 }
 
-# !!PDS: no dogfood so no need for this?
-# function Get-ValuesFile {
-#     $valuesFile = $env:HELMVALUESPATH
-#     if ($null -ne $valuesFile -and (Test-Path $valuesFile)) {
-#         Write-Warning "Values file detected. Reading additional helm parameters from same."
-#         # Trimming required for Windows OS
-#         if ($valuesFile.StartsWith("'") -or $valuesFile.StartsWith('"')) {
-#             $valuesFile = $valuesFile.Substring(1)
-#         }
-#         if ($valuesFile.EndsWith("'") -or $valuesFile.EndsWith('"')) {
-#             $valuesFile = $valuesFile.Substring(0, $valuesFile.Length - 1)
-#         }
-#         return $valuesFile
-#     }
-#     return $null
-# }
-
-function Get-HelmValues {
-    param (
-        [Parameter(Mandatory=$true)]
-        $ConfigDpEndpoint,
-        [string]$ReleaseTrainCustom,
-        $RequestBody
-    )
-
-    # Setting uri
-    $apiVersion = "2024-07-01-preview"
-    $chartLocationUrlSegment = "azure-arc-k8sagents/GetHelmSettings?api-version=$apiVersion"
-    $releaseTrain = if ($env:RELEASETRAIN) { $env:RELEASETRAIN } else { "stable" }
-    $chartLocationUrl = "$ConfigDpEndpoint/$chartLocationUrlSegment"
-    if ($ReleaseTrainCustom) {
-        $releaseTrain = $ReleaseTrainCustom
-    }
-    $uriParameters = @{releaseTrain=$releaseTrain}
-    $headers = @{
-        "Content-Type" = "application/json"
-    }
-    if ($env:AZURE_ACCESS_TOKEN) {
-        $headers["Authorization"] = "Bearer $($env:AZURE_ACCESS_TOKEN)"
-    }
-
-    $dpRequestIdentity = $RequestBody.identity
-    $id = $RequestBody.id
-    # $request_body = $request_body.serialize()
-    $RequestBody = $RequestBody | ConvertTo-Json | ConvertFrom-Json -AsHashtable
-    $RequestBody["Identity"] = @{
-        tenantId = $dpRequestIdentity.tenantId
-        principalId = $dpRequestIdentity.principalId
-    }
-    $RequestBody["Id"] = $id
-
-    # Convert $request_body to JSON
-    $jsonBody = $RequestBody | ConvertTo-Json
-    Write-Error "Request body: $jsonBody"
-
-    # Sending request with retries
-    try {
-        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -RequestBody $JsonBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
-
-        # Response is a Hashtable of JSON values.
-        if ($statusCode -eq 200 -and $r) {
-            return $r
-        }
-        else {
-            throw "No content was found in helm registry path response, StatusCode: ${statusCode}."
-        }
-    }
-    catch {
-        $errorMessage = "Error while fetching helm values from DP from JSON response: $_"
-        Write-Error $errorMessage
-        throw $errorMessage
-    }
-}
-
-function Get-ChartPath {
-    param (
-        [string]$RegistryPath,
-        [string]$KubeConfig,
-        [string]$KubeContext,
-        [string]$HelmClientLocation,
-        [string]$ChartFolderName = 'AzureArcCharts',
-        [string]$ChartName = 'azure-arc-k8sagents',
-        [bool]$NewPath = $true
-    )
-
-    # Exporting Helm chart
-    $ChartExportPath = Join-Path $env:USERPROFILE ('.azure', $ChartFolderName -join '\')
-    try {
-        if (Test-Path $ChartExportPath) {
-            Remove-Item $ChartExportPath -Recurse -Force
-        }
-    }
-    catch {
-        Write-Warning "Unable to cleanup the $ChartFolderName already present on the machine. In case of failure, please cleanup the directory '$ChartExportPath' and try again."
-    }
-
-    Get-HelmChart -RegistryPath $RegistryPath -ChartExportPath $ChartExportPath -KubeConfig $KubeConfig -KubeContext $KubeContext -HelmClientLocation $HelmClientLocation -NewPath $NewPath -ChartName $ChartName
-
-    # Returning helm chart path
-    $HelmChartPath = Join-Path $ChartExportPath $ChartName
-    if ($ChartFolderName -eq $consts.Pre_Onboarding_Helm_Charts_Folder_Name) {
-        $ChartPath = $HelmChartPath
-    }
-    else {
-        $ChartPath = if ($env:HELMCHART) { $env:HELMCHART } else { $HelmChartPath }
-    }
-
-    return $ChartPath
-}
-
-function Get-HelmChart {
-    param (
-        [string]$RegistryPath,
-        [string]$ChartExportPath,
-        [string]$KubeConfig,
-        [string]$KubeContext,
-        [string]$HelmClientLocation,
-        [bool]$NewPath,
-        [string]$ChartName = 'azure-arc-k8sagents',
-        [int]$RetryCount = 5,
-        [int]$RetryDelay = 3
-    )
-
-    $chartUrl = $RegistryPath.Split(':')[0]
-    $chartVersion = $RegistryPath.Split(':')[1]
-
-    if ($NewPath) {
-        # Version check for stable release train (chart_version will be in X.Y.Z format as opposed to X.Y.Z-NONSTABLE)
-        if (-not $chartVersion.Contains('-') -and ([version]$chartVersion -lt [version]"1.14.0")) {
-            $errorSummary = "This CLI version does not support upgrading to Agents versions older than v1.14"
-            # Assuming telemetry.set_exception and consts.Operation_Not_Supported_Fault_Type are handled elsewhere
-            throw "Operation not supported on older Agents: $errorSummary"
-        }
-
-        # We do not use Split-Path here because it results in "\" characters in
-        # the results.
-        $basePath, $imageName = if ($chartUrl -match "(^.*?)/([^/]+$)") {$matches[1], $matches[2]}
-        $chartUrl = "$basePath/v2/$imageName"
-    }
-
-    $cmdHelmChartPull = @($HelmClientLocation, "pull", "oci://$chartUrl", "--untar", "--untardir", $ChartExportPath, "--version", $chartVersion)
-    if ($KubeConfig) {
-        $cmdHelmChartPull += "--kubeconfig", $KubeConfig
-    }
-    if ($KubeContext) {
-        $cmdHelmChartPull += "--kube-context", $KubeContext
-    }
-
-    Write-Debug "Pull helm chart: $cmdHelmChartPull[0] $cmdHelmChartPull[1..($cmdHelmChartPull.Count - 1)]"
-    for ($i = 0; $i -lt $RetryCount; $i++) {
-        try {
-            & $cmdHelmChartPull[0] $cmdHelmChartPull[1..($cmdHelmChartPull.Count - 1)]
-            break
-        }
-        catch {
-            if ($i -eq $RetryCount - 1) {
-                # Assuming telemetry.set_exception and consts.Pull_HelmChart_Fault_Type are handled elsewhere
-                throw "Unable to pull $ChartName helm chart from the registry '$RegistryPath': $_"
-            }
-            Start-Sleep -Seconds $RetryDelay
-        }
-    }
-}
