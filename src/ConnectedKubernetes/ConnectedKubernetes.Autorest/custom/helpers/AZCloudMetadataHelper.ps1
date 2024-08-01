@@ -2,17 +2,17 @@
     Justification='MetaData is a recognised term', Scope='Function', Target='Get-AzCloudMetaData')]
 param()
 
-# function Get-AZCloudMetadataResourceId {
-#     param (
-#         [Parameter(Mandatory=$true)]
-#         [PSCustomObject]$cloudMetadata
-#     )
-# 
-#     # Search the $armMetadata hash for the entry where the "name" parameter matches
-#     # $cloud and then find the login endpoint, from which we can discern the
-#     # appropriate "cloud based domain ending".
-#     return $cloudMetadata.authentication.audiences[0]
-# }
+function Get-AZCloudMetadataResourceId {
+    param (
+        [Parameter(Mandatory=$true)]
+        [PSCustomObject]$cloudMetadata
+    )
+
+    # Search the $armMetadata hash for the entry where the "name" parameter matches
+    # $cloud and then find the login endpoint, from which we can discern the
+    # appropriate "cloud based domain ending".
+    return $cloudMetadata.authentication.audiences[0]
+}
 
 Function Get-AzCloudMetadata {
     param (

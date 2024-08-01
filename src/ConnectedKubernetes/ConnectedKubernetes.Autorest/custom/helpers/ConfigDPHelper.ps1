@@ -39,7 +39,7 @@ function Get-ConfigDPEndpoint {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$cloudMetadata
     )
-    . "$PSScriptRoot/helpers/AZCloudMetadataHelper.ps1"
+    . "$PSScriptRoot\AZCloudMetadataHelper.ps1"
 
     $ReleaseTrain = $null
     $ConfigDpEndpoint = $null
@@ -65,7 +65,7 @@ function Get-ConfigDPEndpoint {
     if (-not $ConfigDpEndpoint) {
         $ConfigDpEndpoint = Get-ConfigDpDefaultEndpoint -Location $Location -CloudMetadata $cloudMetadata
     }
-    $ADResourceId = Get-ADResourceId -CloudMetadata $cloudMetadata
+    $ADResourceId = Get-AZCloudMetadataResourceId -CloudMetadata $cloudMetadata
 
     return @{ ConfigDpEndpoint = $ConfigDpEndpoint; ReleaseTrain = $ReleaseTrain; ADResourceId = $ADResourceId }
 }

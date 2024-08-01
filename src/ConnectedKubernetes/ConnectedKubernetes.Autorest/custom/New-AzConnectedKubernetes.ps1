@@ -344,6 +344,26 @@ function New-AzConnectedKubernetes {
         $IdentityType = [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Support.ResourceIdentityType]::SystemAssigned
         $PSBoundParameters.Add('IdentityType', $IdentityType)
 
+        # If a new Kubernetes feature is added then code may need to be added here
+        # to suport protected settings as the Config DP is unable to process these
+        # themselves.  Add a check here to see if there are any that we currently
+        # do not suport.
+        $supportedFeatures = @("proxy")
+        if ($arcAgentrySettings) {
+            foreach ($key in $arcAgentryProtectedSettings.Keys) {
+                if (-not $supportedFeatures.Contains($key.ToLower())) {
+                    Write-Warning "Arc Agentry feature '${key}' is not supported for Connected Kubernetes"
+                }
+            }
+        }
+        if ($arcAgentryProtectedSettings) {
+            foreach ($key in $arcAgentryProtectedSettings.Keys) {
+                if (-not $supportedFeatures.Contains($key.ToLower())) {
+                    Write-Warning "ArcAgentry feature '${key}' is not supported for Connected Kubernetes"
+                }
+            }
+        }
+
         #Region check helm install
         try {
             Set-HelmClientLocation
@@ -634,7 +654,7 @@ function New-AzConnectedKubernetes {
 
         # Retrieving Helm chart OCI (Open Container Initiative) Artifact location
         Write-Debug "Retrieving Helm chart OCI (Open Container Initiative) Artifact location."
-        $helmValuesDp = Get-HelmValues -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response -arcAgentryProtectedSettings $arcAgentryProtectedSettings
+        $helmValuesDp = Get-HelmValues -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
         Write-Debug "OCI Artifact location: ${helmValuesDp.repositoryPath}."
 
         # Allow a custom OCI registry to be set via environment variables.

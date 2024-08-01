@@ -109,20 +109,8 @@ function Get-HelmValues {
         [Parameter(Mandatory=$true)]
         $ConfigDpEndpoint,
         [string]$ReleaseTrainCustom,
-        $RequestBody,
-        [hashTable]$arcAgentryProtectedSettings
+        $RequestBody
     )
-
-    # If a new Kubernetes feature is added then code may need to be added here
-    # to suport protected settings as the Config DP is unable to process these
-    # themselves.  Add a check here to see if there are any that we currently
-    # do not suport.
-    $supportedFeatures = @("proxy")
-    foreach ($protectedSetting in $arcAgentryProtectedSettings) {
-        if (-not $supportedFeatures.Contains($protectedSettings.Feature.ToLower())) {
-            Write-Warning "Feature '${protectedSettings.Feature}' is not supported for Connected Kubernetes"
-        }
-    }
 
     # Setting uri
     $apiVersion = "2024-07-01-preview"
