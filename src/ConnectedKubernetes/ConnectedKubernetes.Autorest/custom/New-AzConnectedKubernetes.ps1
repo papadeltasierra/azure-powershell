@@ -567,6 +567,18 @@ function New-AzConnectedKubernetes {
         # Process the Arc agentry settings and protected settings
         # Create any empty array of IArcAgentryConfigurations.
         # shortened name to avoid class with type name.
+        #
+        # **NOTE** The Swagger naming does NOT match the names that will be used
+        #          in the final helm values file.  Instead there needs to be an
+        #          explicit mapping which is done in TWO places:
+        #          1. The ConfigDP is able to map the (unprotected) settings but
+        #             does not have access to the protected settings so...
+        #          2. This Powershell script has to perform the mapping for
+        #             protected settings.
+        #
+        #          This DOES mean that code changes are required both in the
+        #          Config DP annd this Powershell script if a new Kubernetes 
+        #          feature is added.
         $arcAgentryConfigs = @(
         )
 
@@ -622,7 +634,7 @@ function New-AzConnectedKubernetes {
 
         # Retrieving Helm chart OCI (Open Container Initiative) Artifact location
         Write-Debug "Retrieving Helm chart OCI (Open Container Initiative) Artifact location."
-        $helmValuesDp = Get-HelmValues -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response
+        $helmValuesDp = Get-HelmValues -configDPEndpoint $configDPEndpoint -releaseTrain $ReleaseTrain -requestBody $Response -arcAgentryProtectedSettings $arcAgentryProtectedSettings
         Write-Debug "OCI Artifact location: ${helmValuesDp.repositoryPath}."
 
         # Allow a custom OCI registry to be set via environment variables.
@@ -654,16 +666,6 @@ function New-AzConnectedKubernetes {
         if (Test-Path Env:HELMCHART) {
             $ChartPath = Get-ChildItem -Path Env:HELMCHART
         }
-
-        Write-Debug "Helm chart path: ${chartPath}."
-
-        # !!PDS: I think this is wrong and should be replaced by the DP code.
-        # # Substitute any protected helm values as the value for that will be null
-        # # !!PDS: Where are the unprotected values?
-        # $protectedHelmValues = @{}
-        # foreach ($item in $protectedHelmValues.GetEnumerator()) {
-        #     $helmContentValues[$item.Key] = $item.Value
-        # }
 
         # !!PDS Aren't we supposed to read the helm config from the Cluster Config DP?
         # !!PDS: I think we might have done above, but why are we setting many options?
