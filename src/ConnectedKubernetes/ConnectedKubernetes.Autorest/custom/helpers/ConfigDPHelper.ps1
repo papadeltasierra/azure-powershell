@@ -39,6 +39,7 @@ function Get-ConfigDPEndpoint {
         [Parameter(Mandatory=$true)]
         [PSCustomObject]$cloudMetadata
     )
+    . "$PSScriptRoot/helpers/AZCloudMetadataHelper.ps1"
 
     $ReleaseTrain = $null
     $ConfigDpEndpoint = $null
