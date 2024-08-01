@@ -273,7 +273,7 @@ function New-AzConnectedKubernetes {
         [Microsoft.Azure.PowerShell.Cmdlets.ConnectedKubernetes.Category('Runtime')]
         [System.String]
         # Arc Gateway resource Id
-        ${GatewayResoureceId}
+        ${GatewayResourceId}
     )
 
     process {
@@ -324,6 +324,9 @@ function New-AzConnectedKubernetes {
                 }
             }
         }
+
+        # If  GatewayResourceId is provided then set the gateway as enabled.
+        $PSBoundParameters.Add('GatewayEnabled', $null -ne $GatewayResourceId)
 
         $CommonPSBoundParameters = @{}
         if ($PSBoundParameters:HttpPipelineAppend) {
@@ -601,7 +604,6 @@ function New-AzConnectedKubernetes {
             $PSBoundParameters.Remove('ArcAgentryProtectedSettings')
         }
 
-        Write-Error "ArcAgentryConfiguration: $arcAgentryConfigs"
         $PSBoundParameters.Add('ArcAgentryConfiguration', $arcAgentryConfigs)
 
         # A lot of what follows relies on knowing the cloud we are using and the
@@ -841,9 +843,6 @@ function Get-ADResourceId {
     # Search the $armMetadata hash for the entry where the "name" parameter matches
     # $cloud and then find the login endpoint, from which we can discern the
     # appropriate "cloud based domain ending".
-    Write-Error "${cloudMetadata}"
-    Write-Error "${cloudMetadata.authentication}"
-    Write-Error "${cloudMetadata.authentication.audiences}"
     return $cloudMetadata.authentication.audiences[0]
 }
 
@@ -922,14 +921,30 @@ function Get-HelmValues {
         $releaseTrain = $ReleaseTrainCustom
     }
     $uriParameters = @{releaseTrain=$releaseTrain}
-    $headers = @{}
+    $headers = @{
+        "Content-Type" = "application/json"
+    }
     if ($env:AZURE_ACCESS_TOKEN) {
         $headers["Authorization"] = "Bearer $($env:AZURE_ACCESS_TOKEN)"
     }
 
+    $dpRequestIdentity = $RequestBody.identity
+    $id = $RequestBody.id
+    # $request_body = $request_body.serialize()
+    $RequestBody = $RequestBody | ConvertTo-Json | ConvertFrom-Json -AsHashtable
+    $RequestBody["Identity"] = @{
+        tenantId = $dpRequestIdentity.tenantId
+        principalId = $dpRequestIdentity.principalId
+    }
+    $RequestBody["Id"] = $id
+
+    # Convert $request_body to JSON
+    $jsonBody = $RequestBody | ConvertTo-Json
+    Write-Error "Request body: $jsonBody"
+
     # Sending request with retries
     try {
-        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -RequestBody $RequestBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
+        $r = Invoke-RestMethodWithUriParameters -Method 'post' -Uri $chartLocationUrl -Headers $headers -UriParameters $uriParameters -RequestBody $JsonBody -MaximumRetryCount 5 -RetryIntervalSec 3 -StatusCodeVariable statusCodeVariable
 
         # Response is a Hashtable of JSON values.
         if ($statusCode -eq 200 -and $r) {
